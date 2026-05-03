@@ -1,22 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { MessageCircle, ListVideo } from 'lucide-react';
+import { useParams, Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { MessageCircle, ListVideo, Heart, Share2, Info, ChevronLeft, Send, ThumbsUp } from 'lucide-react';
 
-import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData } from '../services/api';
+import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData, type Episode, type Comment, type AnimeLite } from '../services/api';
 import { VideoPlayer } from '../components/VideoPlayer';
-
-type AnimeLite = {
-  mal_id: string;
-  title: string;
-  image_url?: string | null;
-  score?: number | null;
-  year?: number | null;
-  description?: string | null;
-  type?: string | null;
-};
-
-type Episode = { episode_number: string; label?: string | null; quality?: string | null; url: string };
+import { useAppStore } from '../store/useAppStore';
 
 export const Watch = () => {
   const { id } = useParams<{ id: string }>();
@@ -26,10 +15,11 @@ export const Watch = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const [comments, setComments] = useState<any[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [commentName, setCommentName] = useState('Anonymous');
 
+  const { toggleFavorite, isFavorite, addToHistory } = useAppStore();
   const initData = useMemo(() => getTelegramInitData(), []);
 
   const selectEpisodeFromHash = (eps: Episode[]) => {
@@ -52,7 +42,9 @@ export const Watch = () => {
         const res = await getAnime(id);
         setAnime(res.anime);
         setEpisodes(res.episodes || []);
-        setCurrentEp(selectEpisodeFromHash(res.episodes || []));
+        const activeEp = selectEpisodeFromHash(res.episodes || []);
+        setCurrentEp(activeEp);
+        if (res.anime) addToHistory({ mal_id: parseInt(id), title: res.anime.title, image_url: res.anime.image_url || '' });
       } catch (e: any) {
         setError(e?.message || 'Failed to load anime');
       } finally {
@@ -60,7 +52,6 @@ export const Watch = () => {
       }
     };
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const loadComments = async () => {
@@ -75,7 +66,6 @@ export const Watch = () => {
 
   useEffect(() => {
     loadComments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const onTimeUpdate = (time: number) => {
@@ -85,12 +75,10 @@ export const Watch = () => {
     }
   };
 
-
   const submitComment = async () => {
-    if (!id) return;
-    if (!commentText.trim()) return;
+    if (!id || !commentText.trim()) return;
     try {
-      await postComment(id, commentName || 'Anonymous', commentText.trim());
+      await postComment(id, commentName, commentText.trim());
       setCommentText('');
       await loadComments();
     } catch (e: any) {
@@ -98,140 +86,210 @@ export const Watch = () => {
     }
   };
 
-  const like = async (commentId: number) => {
+  const handleLike = async (commentId: number) => {
     try {
       await likeComment(commentId);
       await loadComments();
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center text-white">Loading...</div>;
+  if (loading) return (
+    <div className="min-h-screen bg-black flex items-center justify-center">
+       <div className="relative w-24 h-24">
+          <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full" />
+          <div className="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin" />
+       </div>
+    </div>
+  );
 
-  if (error) return <div className="p-4 text-red-300 pb-24">{error}</div>;
-
-  if (!anime) return <div className="p-4 text-white pb-24">Not found.</div>;
+  if (error || !anime) return (
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-8 text-center">
+      <h2 className="text-3xl font-black text-red-500 mb-4">Content Unavailable</h2>
+      <p className="text-white/60 mb-8 max-w-md">{error || "The anime you are looking for doesn't exist."}</p>
+      <Link to="/" className="px-8 py-4 bg-white/10 rounded-2xl font-bold hover:bg-white/20 transition">Back to Home</Link>
+    </div>
+  );
 
   return (
-    <div className="pb-24 text-white">
-      <div className="px-4 pt-8 max-w-6xl mx-auto">
-        <div className="flex items-start gap-4">
-          <div className="w-16 h-20 rounded-xl overflow-hidden bg-white/10 shrink-0">
-            {anime.image_url ? <img src={anime.image_url} alt={anime.title} className="w-full h-full object-cover" /> : null}
-          </div>
-          <div className="min-w-0">
-            <div className="text-xl font-bold truncate">{anime.title}</div>
-            <div className="mt-1 text-xs text-white/60">
-              {anime.year ? anime.year : '—'} {anime.type ? `• ${anime.type}` : ''} {anime.score ? `• ${anime.score.toFixed(2)} امتیاز` : ''}
-            </div>
-          </div>
+    <div className="min-h-screen bg-[#050505] text-white pb-32">
+      {/* Immersive Background Header */}
+      <div className="absolute top-0 inset-x-0 h-[60vh] opacity-20 pointer-events-none">
+         <div
+           className="w-full h-full bg-cover bg-center blur-3xl scale-110"
+           style={{ backgroundImage: `url(${anime.image_url})` }}
+         />
+         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#050505]" />
+      </div>
+
+      <div className="relative z-10 max-w-[1800px] mx-auto px-6 pt-12">
+        {/* Top Bar */}
+        <div className="flex items-center justify-between mb-8">
+           <Link to="/" className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-2 group">
+              <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+              <span className="font-bold text-sm">Back</span>
+           </Link>
+
+           <div className="flex items-center gap-3">
+              <button
+                onClick={() => toggleFavorite({ mal_id: parseInt(id!), title: anime.title, image_url: anime.image_url || '' })}
+                className={`p-4 rounded-2xl border transition-all ${isFavorite(parseInt(id!)) ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white/5 border-white/10 text-white hover:bg-white/10'}`}
+              >
+                <Heart className={`w-5 h-5 ${isFavorite(parseInt(id!)) ? 'fill-current' : ''}`} />
+              </button>
+              <button className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-white">
+                <Share2 className="w-5 h-5" />
+              </button>
+           </div>
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-          className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-5"
-        >
-          <div className="lg:col-span-2">
-            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 shadow-2xl">
-              {currentEp ? (
-                <VideoPlayer
-                  src={currentEp.url}
-                  title={currentEp.label || `Episode ${currentEp.episode_number}`}
-                  poster={anime.image_url || undefined}
-                  onTimeUpdate={onTimeUpdate}
-                />
-              ) : (
-                <div className="p-12 text-center text-sm text-white/70 bg-white/5 backdrop-blur-xl">هیچ اپیزودی پیدا نشد.</div>
-              )}
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <ListVideo className="w-4 h-4" />
-                اپیزودها
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {episodes.map((ep) => {
-                  const active = currentEp?.episode_number === ep.episode_number;
-                  return (
-                    <button
-                      key={`${ep.episode_number}-${ep.quality || ''}`}
-                      onClick={() => setCurrentEp(ep)}
-                      className={`px-3 py-2 text-xs rounded-full border transition ${
-                        active ? 'bg-white text-black border-white' : 'border-white/10 bg-black/40 text-white/80 hover:bg-black/60'
-                      }`}
-                    >
-                      {ep.label || `Ep ${ep.episode_number}`} {ep.quality ? `(${ep.quality})` : ''}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm font-semibold">توضیحات</div>
-              <p className="mt-2 text-sm text-white/70 leading-relaxed">
-                {anime.description || '—'}
-              </p>
-            </div>
-          </div>
-
-          <div className="lg:col-span-1">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <MessageCircle className="w-4 h-4" />
-                نظرات
-              </div>
-
-              <div className="mt-4 space-y-3 max-h-[340px] overflow-auto pr-1">
-                {comments.length === 0 ? (
-                  <div className="text-sm text-white/60">هنوز نظری ثبت نشده.</div>
-                ) : (
-                  comments.map((c) => (
-                    <div key={c.id} className="rounded-xl border border-white/10 bg-black/40 p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-semibold">{c.user_name || 'Anonymous'}</div>
-                        <button className="text-[11px] text-white/60 hover:text-white" onClick={() => like(c.id)}>
-                          ❤️ {c.likes || 0}
-                        </button>
-                      </div>
-                      <div className="mt-2 text-sm text-white/70 leading-relaxed">{c.text}</div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+           {/* Player Column */}
+           <div className="lg:col-span-8 space-y-8">
+              <div className="relative group aspect-video rounded-[40px] overflow-hidden bg-black border border-white/10 shadow-2xl shadow-indigo-500/5">
+                 {currentEp ? (
+                    <VideoPlayer
+                      src={currentEp.url}
+                      title={`${anime.title} - ${currentEp.label || `Ep ${currentEp.episode_number}`}`}
+                      poster={anime.image_url || undefined}
+                      onTimeUpdate={onTimeUpdate}
+                    />
+                 ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-center p-12 space-y-4">
+                       <Info className="w-16 h-16 text-indigo-500" />
+                       <div className="text-xl font-bold">No Episodes Found</div>
+                       <p className="text-white/40 max-w-xs">We couldn't locate any playable files for this anime yet.</p>
                     </div>
-                  ))
-                )}
+                 )}
               </div>
 
-              <div className="mt-4 space-y-2">
-                <input
-                  value={commentName}
-                  onChange={(e) => setCommentName(e.target.value)}
-                  placeholder="نام"
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-white/30"
-                />
-                <textarea
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="نظر شما..."
-                  className="w-full min-h-[90px] rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-white/30"
-                />
-                <button
-                  onClick={submitComment}
-                  className="w-full rounded-xl bg-white text-black py-2 text-sm font-semibold hover:bg-white/90 transition"
-                >
-                  ارسال
-                </button>
-                {!initData ? (
-                  <div className="text-[11px] text-white/50">
-                    (برای ذخیره ادامه تماشا و اتصال کاربر بهتر است داخل Mini App تلگرام باشید.)
-                  </div>
-                ) : null}
+              {/* Episode Selection */}
+              <div className="p-8 rounded-[40px] border border-white/10 bg-white/5 backdrop-blur-3xl space-y-6">
+                 <div className="flex items-center gap-4">
+                    <ListVideo className="w-6 h-6 text-indigo-400" />
+                    <h2 className="text-2xl font-black tracking-tight">Episodes</h2>
+                    <span className="px-3 py-1 rounded-full bg-white/10 text-[10px] font-black">{episodes.length} Total</span>
+                 </div>
+
+                 <div className="flex flex-wrap gap-3">
+                    <AnimatePresence mode="popLayout">
+                       {episodes.map((ep) => {
+                          const active = currentEp?.episode_number === ep.episode_number;
+                          return (
+                            <motion.button
+                              layout
+                              key={`${ep.episode_number}-${ep.quality || ''}`}
+                              onClick={() => setCurrentEp(ep)}
+                              className={`px-6 py-4 rounded-2xl font-black text-sm transition-all border ${
+                                active
+                                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20 scale-105'
+                                  : 'bg-white/5 border-white/5 text-white/60 hover:bg-white/10 hover:border-white/10'
+                              }`}
+                            >
+                              {ep.label || `Episode ${ep.episode_number}`}
+                              {ep.quality && <span className="ml-2 opacity-50 text-[10px]">{ep.quality}</span>}
+                            </motion.button>
+                          );
+                       })}
+                    </AnimatePresence>
+                 </div>
               </div>
-            </div>
-          </div>
-        </motion.div>
+
+              {/* Metadata */}
+              <div className="p-10 rounded-[40px] border border-white/10 bg-white/5 backdrop-blur-3xl">
+                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+                    <div className="space-y-2">
+                       <h1 className="text-4xl font-black tracking-tighter">{anime.title}</h1>
+                       <div className="flex items-center gap-4 text-xs font-bold text-indigo-400 uppercase tracking-widest">
+                          <span>{anime.year}</span>
+                          <span className="w-1 h-1 bg-white/20 rounded-full" />
+                          <span>{anime.type}</span>
+                          <span className="w-1 h-1 bg-white/20 rounded-full" />
+                          <span>{anime.score} MAL Score</span>
+                       </div>
+                    </div>
+                    <Link to={`/anime/${id}/details`}>
+                       <button className="px-8 py-4 bg-white/10 border border-white/10 rounded-2xl font-bold hover:bg-indigo-600 hover:border-indigo-600 transition-all">
+                          More Details
+                       </button>
+                    </Link>
+                 </div>
+                 <p className="text-lg text-white/70 leading-relaxed font-medium italic">
+                    {anime.description || 'Description not available...'}
+                 </p>
+              </div>
+           </div>
+
+           {/* Sidebar Column (Chat Style Comments) */}
+           <div className="lg:col-span-4 space-y-8">
+              <div className="h-[800px] flex flex-col rounded-[40px] border border-white/10 bg-white/5 backdrop-blur-3xl overflow-hidden shadow-2xl">
+                 <div className="p-8 border-b border-white/10 bg-white/5 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                       <MessageCircle className="w-6 h-6 text-indigo-400" />
+                       <h2 className="text-xl font-black tracking-tight">Live Discussion</h2>
+                    </div>
+                    <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                 </div>
+
+                 {/* Comments List */}
+                 <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-white/10">
+                    {comments.length === 0 ? (
+                       <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4 opacity-30">
+                          <MessageCircle className="w-12 h-12" />
+                          <p className="text-sm font-bold">No comments yet. Start the conversation!</p>
+                       </div>
+                    ) : (
+                       comments.map((c) => (
+                          <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            key={c.id}
+                            className="group space-y-2"
+                          >
+                             <div className="flex items-center justify-between">
+                                <div className="text-xs font-black text-indigo-400 uppercase tracking-wider">{c.user_name}</div>
+                                <div className="text-[10px] font-bold text-white/20">{c.date}</div>
+                             </div>
+                             <div className="p-4 rounded-2xl bg-white/5 border border-white/5 group-hover:bg-white/10 group-hover:border-white/10 transition-all text-sm leading-relaxed font-medium text-white/80">
+                                {c.text}
+                             </div>
+                             <button
+                                onClick={() => handleLike(c.id)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-indigo-500/20 text-[10px] font-black text-white/40 hover:text-indigo-400 transition-all"
+                             >
+                                <ThumbsUp className="w-3 h-3" /> {c.likes}
+                             </button>
+                          </motion.div>
+                       ))
+                    )}
+                 </div>
+
+                 {/* Input Area */}
+                 <div className="p-6 border-t border-white/10 bg-white/5 space-y-4">
+                    <input
+                       value={commentName}
+                       onChange={(e) => setCommentName(e.target.value)}
+                       placeholder="Your name..."
+                       className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-xs font-black outline-none focus:border-indigo-500/50 transition-all"
+                    />
+                    <div className="relative">
+                       <textarea
+                          value={commentText}
+                          onChange={(e) => setCommentText(e.target.value)}
+                          placeholder="Type something amazing..."
+                          className="w-full bg-white/5 border border-white/5 rounded-2xl px-5 py-4 text-sm font-medium outline-none focus:border-indigo-500/50 transition-all min-h-[120px] resize-none"
+                       />
+                       <button
+                          onClick={submitComment}
+                          disabled={!commentText.trim()}
+                          className="absolute bottom-4 right-4 p-3 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-all disabled:opacity-50 disabled:grayscale group"
+                       >
+                          <Send className="w-5 h-5 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                       </button>
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </div>
       </div>
     </div>
   );

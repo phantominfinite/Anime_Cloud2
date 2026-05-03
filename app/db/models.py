@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, DateTime, UniqueConstraint, Index, Float, Text, Boolean, Computed
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import TSVECTOR, JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.session import Base
@@ -52,10 +52,10 @@ class Anime(Base):
     image_url = Column(String, nullable=True)
     
     # Enhanced Metadata
-    genres = Column(Text, nullable=True) # JSON string
+    genres = Column(JSONB, nullable=True)
     score = Column(Float, nullable=True)
     status = Column(String, nullable=True)
-    studios = Column(Text, nullable=True) # JSON string
+    studios = Column(JSONB, nullable=True)
     type = Column(String, nullable=True)
     year = Column(Integer, nullable=True)
     season = Column(String, nullable=True)
