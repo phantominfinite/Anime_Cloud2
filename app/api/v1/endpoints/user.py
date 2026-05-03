@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 
 from app.db.session import get_db
 from app.db.models import User, UserAnime
-from app.services.auth import get_current_user, require_user
+from app.services.auth import require_user
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -17,23 +17,6 @@ class UserAnimeUpdate(BaseModel):
     score: Optional[int] = None
     progress_episode: Optional[str] = None
     progress_time: Optional[int] = None  # seconds
-
-@router.post("/auth/login")
-async def login(user: User = Depends(require_user)):
-    """
-    Verifies Telegram Init Data and returns the user.
-    Called by frontend on startup.
-    """
-    return {
-        "ok": True,
-        "user": {
-            "id": user.id,
-            "telegram_id": user.telegram_id,
-            "first_name": user.first_name,
-            "username": user.username,
-            "photo_url": user.photo_url
-        }
-    }
 
 @router.get("/user/me")
 async def me(user: User = Depends(require_user)):
@@ -60,13 +43,13 @@ async def get_library(user: User = Depends(require_user), db: AsyncSession = Dep
     
     return {
         "ok": True,
-        "library": [
+        "items": [
             {
                 "anime_mal_id": item.anime_mal_id,
                 "status": item.status,
                 "is_favorite": item.is_favorite,
                 "score": item.score,
-                "progress": item.progress_episode
+                "progress_episode": item.progress_episode
             }
             for item in items
         ]
@@ -106,7 +89,7 @@ async def update_library(
             entry.score = data.score
         if data.progress_episode is not None:
             entry.progress_episode = data.progress_episode
-        if getattr(entry, "progress_time", None) is not None and data.progress_time is not None:
+        if data.progress_time is not None and hasattr(entry, "progress_time"):
             entry.progress_time = data.progress_time
             
     await db.commit()

@@ -9,7 +9,9 @@ import Profile from './pages/Profile';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
+  const hideNav = location.pathname.startsWith('/anime/');
   return (
+    <>
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
@@ -20,6 +22,8 @@ const AnimatedRoutes = () => {
         <Route path="*" element={<PageWrapper><Home /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
+    {!hideNav && <Navbar />}
+    </>
   );
 };
 
@@ -39,7 +43,6 @@ const App = () => {
     <Router>
       <div className="min-h-screen bg-black text-white font-sans antialiased">
         <AnimatedRoutes />
-        <Navbar />
       </div>
     </Router>
   );
