@@ -5,6 +5,7 @@ import { Play, RefreshCw } from 'lucide-react';
 
 import { AnimeCard } from '../components/AnimeCard';
 import { Button } from '../components/ui/Button';
+import { Skeleton } from '../components/ui/Skeleton';
 import { getAvailable, getAnime, getContinueWatching, type AnimeLite } from '../services/api';
 import { getTelegramInitData } from '../services/api';
 
@@ -63,16 +64,23 @@ export const Home = () => {
 
   if (loading) {
     return (
-      <div className="px-4 py-10 pb-24 text-white">
-        <div className="animate-pulse space-y-6">
-          <div className="h-52 rounded-2xl bg-white/10" />
-          <div className="h-6 w-40 rounded bg-white/10" />
+      <div className="px-4 py-10 pb-24 text-white max-w-6xl mx-auto space-y-10">
+        <Skeleton className="h-[420px] w-full rounded-3xl" />
+        <section className="space-y-4">
+          <Skeleton className="h-8 w-48" />
           <div className="flex gap-4 overflow-hidden">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-56 w-40 rounded-xl bg-white/10" />
+              <Skeleton key={i} className="h-64 w-44 rounded-xl shrink-0" />
             ))}
           </div>
-        </div>
+        </section>
+        <section className="space-y-4">
+          <Skeleton className="h-8 w-48" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+             <Skeleton className="h-24 w-full rounded-xl" />
+             <Skeleton className="h-24 w-full rounded-xl" />
+          </div>
+        </section>
       </div>
     );
   }

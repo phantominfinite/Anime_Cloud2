@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import Plyr, { type APITypes } from 'plyr-react';
-import 'plyr-react/plyr.css';
 import { motion } from 'framer-motion';
 import { MessageCircle, ListVideo } from 'lucide-react';
 
 import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData } from '../services/api';
+import { VideoPlayer } from '../components/VideoPlayer';
 
 type AnimeLite = {
   mal_id: string;
@@ -31,7 +30,6 @@ export const Watch = () => {
   const [commentText, setCommentText] = useState('');
   const [commentName, setCommentName] = useState('Anonymous');
 
-  const playerRef = useRef<APITypes>(null);
   const initData = useMemo(() => getTelegramInitData(), []);
 
   const selectEpisodeFromHash = (eps: Episode[]) => {
@@ -80,40 +78,13 @@ export const Watch = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Save progress periodically (best-effort)
-  useEffect(() => {
-    if (!id || !currentEp) return;
+  const onTimeUpdate = (time: number) => {
+    if (!id || !currentEp || !initData) return;
+    if (time > 0 && Math.floor(time) % 10 === 0) {
+      updateProgress(id, currentEp.episode_number, time).catch(() => {});
+    }
+  };
 
-    const interval = setInterval(() => {
-      try {
-        const plyr = playerRef.current?.plyr;
-        if (!plyr) return;
-        const t = plyr.currentTime || 0;
-        // only if telegram init exists (auth)
-        if (initData && t > 1) {
-          updateProgress(id, currentEp.episode_number, t).catch(() => {});
-        }
-      } catch {
-        // ignore
-      }
-    }, 8000);
-
-    return () => clearInterval(interval);
-  }, [id, currentEp, initData]);
-
-  const playerSource = useMemo(() => {
-    if (!currentEp) return null;
-    return {
-      type: 'video',
-      title: currentEp.label || `Episode ${currentEp.episode_number}`,
-      sources: [
-        {
-          src: currentEp.url,
-          type: 'video/mp4',
-        },
-      ],
-    };
-  }, [currentEp]);
 
   const submitComment = async () => {
     if (!id) return;
@@ -164,15 +135,20 @@ export const Watch = () => {
           className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-5"
         >
           <div className="lg:col-span-2">
-            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40">
-              {playerSource ? (
-                <Plyr ref={playerRef} source={playerSource as any} options={{ autoplay: true }} />
+            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 shadow-2xl">
+              {currentEp ? (
+                <VideoPlayer
+                  src={currentEp.url}
+                  title={currentEp.label || `Episode ${currentEp.episode_number}`}
+                  poster={anime.image_url || undefined}
+                  onTimeUpdate={onTimeUpdate}
+                />
               ) : (
-                <div className="p-6 text-sm text-white/70">هیچ اپیزودی پیدا نشد.</div>
+                <div className="p-12 text-center text-sm text-white/70 bg-white/5 backdrop-blur-xl">هیچ اپیزودی پیدا نشد.</div>
               )}
             </div>
 
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <ListVideo className="w-4 h-4" />
                 اپیزودها

@@ -1,16 +1,28 @@
 import { Link } from 'react-router-dom';
 import { Play } from 'lucide-react';
+import { Skeleton } from './ui/Skeleton';
 
 interface AnimeCardProps {
-  mal_id: string;
-  title: string;
-  image: string;
+  mal_id?: string;
+  title?: string;
+  image?: string;
   score?: number;
   year?: number;
   episodes?: number;
+  loading?: boolean;
 }
 
-export const AnimeCard = ({ mal_id, title, image, score, year, episodes }: AnimeCardProps) => {
+export const AnimeCard = ({ mal_id, title, image, score, year, episodes, loading }: AnimeCardProps) => {
+  if (loading) {
+    return (
+      <div className="w-32 md:w-44 flex-shrink-0 space-y-3">
+        <Skeleton className="aspect-[2/3] w-full rounded-lg" />
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-3 w-1/2" />
+      </div>
+    );
+  }
+
   return (
     <Link to={`/anime/${mal_id}`} className="group relative block w-32 md:w-44 flex-shrink-0 transition-transform hover:scale-105">
       <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-gray-900 shadow-lg">

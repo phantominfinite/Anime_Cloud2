@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, DateTime, UniqueConstraint, Index, Float, Text, Boolean
+from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, DateTime, UniqueConstraint, Index, Float, Text, Boolean, Computed
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.session import Base
@@ -66,6 +67,9 @@ class Anime(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # PostgreSQL Full-Text Search Vector
+    search_vector = Column(TSVECTOR)
+
     episodes = relationship("Episode", back_populates="anime", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="anime", cascade="all, delete-orphan")
 
