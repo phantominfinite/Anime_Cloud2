@@ -43,7 +43,7 @@ def mock_file_id():
 @pytest.mark.asyncio
 async def test_get_chunk_cached(mock_client, mock_cache_service):
     """Test retrieving a chunk that is already in cache."""
-    downloader = SmartDownloader(mock_client)
+    downloader = SmartDownloader([mock_client])
     
     # Setup cache to return data
     mock_cache_service.get_chunk.return_value = b"cached_data"
@@ -58,7 +58,7 @@ async def test_get_chunk_cached(mock_client, mock_cache_service):
 @pytest.mark.asyncio
 async def test_get_chunk_download(mock_client, mock_cache_service):
     """Test retrieving a chunk that needs to be downloaded."""
-    downloader = SmartDownloader(mock_client)
+    downloader = SmartDownloader([mock_client])
     
     # First check returns None (not in cache)
     # Second check (after download) returns data
@@ -77,7 +77,7 @@ async def test_get_chunk_download(mock_client, mock_cache_service):
 @pytest.mark.asyncio
 async def test_concurrent_downloads(mock_client, mock_cache_service):
     """Test that multiple requests for the same chunk share the same download task."""
-    downloader = SmartDownloader(mock_client)
+    downloader = SmartDownloader([mock_client])
     
     # Simulate slow network
     async def slow_invoke(*args, **kwargs):

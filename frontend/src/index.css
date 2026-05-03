@@ -23,3 +23,15 @@
 .glass-heavy {
   @apply bg-dark/90 backdrop-blur-2xl border border-white/10;
 }
+
+.mask-linear-r {
+  mask-image: linear-gradient(to right, black 85%, transparent 100%);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -47,7 +47,7 @@ async def get_system_health(db: AsyncSession = Depends(get_db)):
         "components": {
             "database": db_status,
             "cache": cache_status,
-            "realtime_users": len(manager.active_connections),
+            "realtime_users": len(manager.local_connections),
         },
     }
 
@@ -71,7 +71,7 @@ async def get_system_info() -> dict:
         "ok": True,
         "environment": settings.ENVIRONMENT,
         "uptime_seconds": uptime_s,
-        "realtime_users": len(manager.active_connections),
+        "realtime_users": len(manager.local_connections),
         "cache_dir": settings.CACHE_DIR,
         "cache_bytes": cache_bytes,
     }

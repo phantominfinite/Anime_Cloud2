@@ -1,5 +1,5 @@
 from fastapi import WebSocket
-from typing import List, Dict, Set
+from typing import Set
 import json
 import logging
 import asyncio
@@ -9,88 +9,105 @@ logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     def __init__(self):
-        # Global connection list
-        self.active_connections: List[WebSocket] = []
-        # Rooms: anime_mal_id -> Set[WebSocket]
-        self.rooms: Dict[str, Set[WebSocket]] = {}
+        # We still need to track local connections to send messages to them
+        self.local_connections: Set[WebSocket] = set()
+        # Local rooms mapping: anime_mal_id -> Set[WebSocket]
+        self.local_rooms: dict[str, Set[WebSocket]] = {}
+        self.pubsub_task = None
+
+    async def _setup_pubsub(self):
+        if self.pubsub_task:
+            return
+
+        if redis_service.is_mock:
+            logger.warning("WebSocket scaling disabled: using MockRedis (no Pub/Sub)")
+            return
+
+        pubsub = redis_service.client.pubsub()
+        await pubsub.subscribe("ws_broadcast", "ws_room_broadcast")
+
+        async def listen():
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    try:
+                        data = json.loads(message["data"])
+                        target_room = data.get("_room")
+                        payload = data.get("payload")
+
+                        if target_room:
+                            await self._send_to_local_room(target_room, payload)
+                        else:
+                            await self._send_to_all_local(payload)
+                    except Exception as e:
+                        logger.error(f"Error in pubsub listen: {e}")
+
+        self.pubsub_task = asyncio.create_task(listen())
 
     async def connect(self, websocket: WebSocket, anime_mal_id: str = None):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        self.local_connections.add(websocket)
+        await self._setup_pubsub()
         
         if anime_mal_id:
-            if anime_mal_id not in self.rooms:
-                self.rooms[anime_mal_id] = set()
-            self.rooms[anime_mal_id].add(websocket)
-            await self.update_room_count(anime_mal_id)
+            if anime_mal_id not in self.local_rooms:
+                self.local_rooms[anime_mal_id] = set()
+            self.local_rooms[anime_mal_id].add(websocket)
         
         await self.broadcast_user_count()
 
     async def disconnect(self, websocket: WebSocket, anime_mal_id: str = None):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
+        self.local_connections.discard(websocket)
+        if anime_mal_id and anime_mal_id in self.local_rooms:
+            self.local_rooms[anime_mal_id].discard(websocket)
+            if not self.local_rooms[anime_mal_id]:
+                del self.local_rooms[anime_mal_id]
         
-        if anime_mal_id and anime_mal_id in self.rooms:
-            if websocket in self.rooms[anime_mal_id]:
-                self.rooms[anime_mal_id].remove(websocket)
-                if not self.rooms[anime_mal_id]:
-                    del self.rooms[anime_mal_id]
-                else:
-                    await self.update_room_count(anime_mal_id)
-
         await self.broadcast_user_count()
 
-    async def broadcast(self, message: dict):
-        to_remove = []
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except Exception:
-                to_remove.append(connection)
-        
-        for conn in to_remove:
-            # We don't know which room they were in easily here without tracking
-            if conn in self.active_connections:
-                self.active_connections.remove(conn)
-
-    async def broadcast_room(self, anime_mal_id: str, message: dict):
-        """Send a message to connections that joined a given anime room."""
-        if not anime_mal_id or anime_mal_id not in self.rooms:
-            # Fallback to global broadcast if no room is known.
-            await self.broadcast(message)
-            return
-
-        to_remove = []
-        for ws in list(self.rooms[anime_mal_id]):
+    async def _send_to_all_local(self, message: dict):
+        for ws in list(self.local_connections):
             try:
                 await ws.send_json(message)
-            except Exception:
-                to_remove.append(ws)
+            except:
+                self.local_connections.discard(ws)
 
-        for ws in to_remove:
-            try:
-                self.rooms[anime_mal_id].discard(ws)
-            except Exception:
-                pass
-
-    async def broadcast_user_count(self):
-        count = len(self.active_connections)
-        await self.broadcast({"type": "online_count", "count": count})
-
-    async def update_room_count(self, anime_mal_id: str):
-        if anime_mal_id in self.rooms:
-            count = len(self.rooms[anime_mal_id])
-            message = {"type": "room_count", "anime_mal_id": anime_mal_id, "count": count}
-            
-            # Broadcast to everyone in the room
-            to_remove = []
-            for ws in self.rooms[anime_mal_id]:
+    async def _send_to_local_room(self, anime_mal_id: str, message: dict):
+        if anime_mal_id in self.local_rooms:
+            for ws in list(self.local_rooms[anime_mal_id]):
                 try:
                     await ws.send_json(message)
                 except:
-                    to_remove.append(ws)
+                    self.local_rooms[anime_mal_id].discard(ws)
+
+    async def broadcast(self, message: dict):
+        """Global broadcast via Redis Pub/Sub."""
+        if redis_service.is_mock:
+            await self._send_to_all_local(message)
+            return
             
-            for ws in to_remove:
-                self.rooms[anime_mal_id].remove(ws)
+        await redis_service.client.publish("ws_broadcast", json.dumps({
+            "payload": message
+        }))
+
+    async def broadcast_room(self, anime_mal_id: str, message: dict):
+        """Room broadcast via Redis Pub/Sub."""
+        if redis_service.is_mock:
+            await self._send_to_local_room(anime_mal_id, message)
+            return
+
+        await redis_service.client.publish("ws_room_broadcast", json.dumps({
+            "_room": anime_mal_id,
+            "payload": message
+        }))
+
+    async def broadcast_user_count(self):
+        # This is tricky across instances without a global counter
+        # For simplicity, we just use local count or a redis counter
+        if not redis_service.is_mock:
+            count = len(self.local_connections)
+            # In a real app we'd aggregate counts from all nodes in Redis
+            await self.broadcast({"type": "online_count", "count": count})
+        else:
+            await self._send_to_all_local({"type": "online_count", "count": len(self.local_connections)})
 
 manager = ConnectionManager()

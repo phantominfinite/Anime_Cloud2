@@ -31,8 +31,14 @@ class RecommendationService:
         for anime in liked_animes:
             if anime.genres:
                 try:
-                    g_list = json.loads(anime.genres)
-                    genres.update(g_list)
+                    # anime.genres is now JSONB (list of objects or strings)
+                    g_list = anime.genres
+                    if isinstance(g_list, list):
+                        for g in g_list:
+                            if isinstance(g, dict):
+                                genres.add(g.get("name", ""))
+                            else:
+                                genres.add(str(g))
                 except:
                     pass
 
@@ -49,8 +55,13 @@ class RecommendationService:
         watched_res = await db.execute(watched_stmt)
         watched_ids = watched_res.scalars().all()
 
-        # Build a query to search by genres
-        genre_filters = [Anime.genres.ilike(f"%{g}%") for g in genres]
+        # Build a query to search by genres using JSONB contains or similar
+        # For simplicity and broad compatibility with existing data format
+        # we can use @> if it was a flat list, but let's use a safe approach
+        genre_filters = [Anime.genres.cast(text("text")).ilike(f"%{g}%") for g in genres if g]
+        if not genre_filters:
+            return self._format([])
+
         stmt = (
             select(Anime)
             .filter(or_(*genre_filters))

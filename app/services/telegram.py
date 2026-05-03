@@ -35,7 +35,8 @@ class TelegramService:
 
     async def start(self):
         if not self.client:
-            logger.info("Starting Telegram Client...")
+            logger.info("Starting Telegram Clients...")
+            # Main bot client for handlers
             self.client = Client(
                 "bot_session", 
                 api_id=self.api_id, 
@@ -44,6 +45,12 @@ class TelegramService:
                 in_memory=True
             )
             
+            # Additional worker clients for session rotation / CDN bottleneck
+            self.workers = [self.client]
+            # In a real enterprise setup, we would load more session strings from env
+            # For now we use the main client twice to demonstrate the rotation logic
+            # but usually it would be [Client("w1"), Client("w2"), ...]
+
             self.client.add_handler(MessageHandler(self.handle_start, filters.command("start")))
             self.client.add_handler(MessageHandler(self.handle_search_cmd, filters.command("search")))
             self.client.add_handler(MessageHandler(self.handle_forwarded_video, filters.video | filters.document))
@@ -52,8 +59,8 @@ class TelegramService:
             self.client.add_handler(CallbackQueryHandler(self.handle_callback))
 
             await self.client.start()
-            init_downloader(self.client)
-            logger.info("Telegram Client Started")
+            init_downloader(self.workers)
+            logger.info("Telegram Client(s) Started")
 
     async def stop(self):
         if self.client:
@@ -265,10 +272,10 @@ class TelegramService:
                         title=details.get("title"),
                         description=details.get("synopsis"),
                         image_url=details.get("images", {}).get("jpg", {}).get("large_image_url"),
-                        genres=json.dumps(details.get("genres", [])),
+                        genres=details.get("genres", []),
                         score=details.get("score"),
                         status=details.get("status"),
-                        studios=json.dumps(details.get("studios", [])),
+                        studios=details.get("studios", []),
                         type=details.get("type"),
                         year=details.get("year"),
                         season=details.get("season"),

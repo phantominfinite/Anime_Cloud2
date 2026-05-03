@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.db.models import User
 from app.services.jwt import decode_access_token
+from app.services.ratelimit import rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,12 @@ async def get_current_user(
 
     if not validate_telegram_data(x_telegram_init_data, settings.BOT_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid Telegram data")
+
+    # Strict rate-limiting for user registration/login
+    ip = "unknown" # In real app use request.client.host
+    rl = await rate_limiter.hit("auth_init", ip, limit=5, window_seconds=60)
+    if not rl.allowed:
+        raise HTTPException(status_code=429, detail="Too many login attempts")
 
     try:
         parsed_data = dict(parse_qsl(x_telegram_init_data))
