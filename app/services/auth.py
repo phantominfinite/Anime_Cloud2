@@ -3,7 +3,7 @@ import hashlib
 import json
 import logging
 from urllib.parse import parse_qsl
-from fastapi import Header, HTTPException, Depends
+from fastapi import Header, HTTPException, Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -43,7 +43,8 @@ def validate_telegram_data(init_data: str, bot_token: str) -> bool:
 async def get_current_user(
     x_telegram_init_data: Optional[str] = Header(None),
     token: Optional[str] = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    request: Request | None = None
 ) -> Optional[User]:
     """
     Dependency that validates Telegram data OR JWT token and returns the User object.
@@ -71,7 +72,7 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Invalid Telegram data")
 
     # Strict rate-limiting for user registration/login
-    ip = "unknown" # In real app use request.client.host
+    ip = (request.client.host if request and request.client else "unknown")
     rl = await rate_limiter.hit("auth_init", ip, limit=5, window_seconds=60)
     if not rl.allowed:
         raise HTTPException(status_code=429, detail="Too many login attempts")

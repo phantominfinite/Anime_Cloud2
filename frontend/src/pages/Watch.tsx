@@ -18,6 +18,7 @@ export const Watch = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [commentName, setCommentName] = useState('Anonymous');
+  const [watchingCount, setWatchingCount] = useState(1);
 
   const { toggleFavorite, isFavorite, addToHistory } = useAppStore();
   const initData = useMemo(() => getTelegramInitData(), []);
@@ -54,11 +55,12 @@ export const Watch = () => {
     load();
   }, [id]);
 
-  const loadComments = async () => {
+  const loadComments = async (offset = 0) => {
     if (!id) return;
     try {
-      const res = await getComments(id);
-      setComments(res.items || res.comments || []);
+      const res = await getComments(id, offset, 30);
+      const incoming = res.items || res.comments || [];
+      setComments(offset === 0 ? incoming : [...comments, ...incoming]);
     } catch {
       setComments([]);
     }
@@ -66,6 +68,21 @@ export const Watch = () => {
 
   useEffect(() => {
     loadComments();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/${id}`);
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === "watching_count") setWatchingCount(message.count || 1);
+        if (message.type === "new_comment") setComments((prev) => [message.data, ...prev]);
+        if (message.type === "comment_like") setComments((prev) => prev.map((c) => c.id === message.data.id ? { ...c, likes: message.data.likes } : c));
+      } catch {}
+    };
+    return () => ws.close();
   }, [id]);
 
   const onTimeUpdate = (time: number) => {
@@ -78,9 +95,10 @@ export const Watch = () => {
   const submitComment = async () => {
     if (!id || !commentText.trim()) return;
     try {
-      await postComment(id, commentName, commentText.trim());
+      const optimistic = { id: Date.now(), user_name: commentName, text: commentText.trim(), likes: 0, date: new Date().toISOString().slice(0,10).replace(/-/g, "/") };
+      setComments((prev) => [optimistic as any, ...prev]);
       setCommentText('');
-      await loadComments();
+      await postComment(id, commentName, optimistic.text);
     } catch (e: any) {
       setError(e?.message || 'Failed to post comment');
     }
@@ -88,8 +106,8 @@ export const Watch = () => {
 
   const handleLike = async (commentId: number) => {
     try {
+      setComments((prev) => prev.map((c) => c.id === commentId ? { ...c, likes: c.likes + 1 } : c));
       await likeComment(commentId);
-      await loadComments();
     } catch {}
   };
 
@@ -226,6 +244,7 @@ export const Watch = () => {
                     <div className="flex items-center gap-3">
                        <MessageCircle className="w-6 h-6 text-indigo-400" />
                        <h2 className="text-xl font-black tracking-tight">Live Discussion</h2>
+                       <span className="text-xs text-emerald-400">Watching now: {watchingCount}</span>
                     </div>
                     <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                  </div>

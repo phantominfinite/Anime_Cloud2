@@ -100,9 +100,9 @@ export const getAnimeEpisodes = async (malId: string): Promise<Episode[]> => {
   }
 };
 
-export const getComments = async (malId: string): Promise<{ items?: Comment[], comments?: Comment[] }> => {
+export const getComments = async (malId: string, offset = 0, limit = 30): Promise<{ items?: Comment[], comments?: Comment[] }> => {
   try {
-    const res = await api.get<{ items?: Comment[], comments?: Comment[] }>(`/anime/${malId}/comments`);
+    const res = await api.get<{ items?: Comment[], comments?: Comment[] }>(`/anime/${malId}/comments?offset=${offset}&limit=${limit}`);
     return res.data;
   } catch (e) {
     throw normalizeError(e);
@@ -111,7 +111,7 @@ export const getComments = async (malId: string): Promise<{ items?: Comment[], c
 
 export const postComment = async (malId: string, user_name: string, text: string): Promise<{ ok: boolean }> => {
   try {
-    const res = await api.post<{ ok: boolean }>(`/anime/${malId}/comments`, { user_name, text });
+    const res = await api.post<{ ok: boolean }>(`/anime/${malId}/comments?offset=${offset}&limit=${limit}`, { user_name, text });
     return res.data;
   } catch (e) {
     throw normalizeError(e);
@@ -186,14 +186,20 @@ export interface JikanAnime {
   synopsis?: string;
 }
 
-export const searchAnime = async (query: string, filters?: { status?: string, type?: string }): Promise<JikanAnime[]> => {
-  const params: Record<string, any> = { q: query, limit: 20 };
+export const searchAnime = async (query: string, filters?: { status?: string, type?: string, min_rating?: number, year?: number, season?: string }, offset = 0, limit = 20): Promise<JikanAnime[]> => {
+  const params: Record<string, any> = { q: query, limit };
   if (filters?.status) params.status = filters.status;
   if (filters?.type) params.type = filters.type;
+  if (filters?.min_rating) params.min_score = filters.min_rating;
+  if (filters?.year) params.start_date = `${filters.year}-01-01`;
+  if (filters?.season) params.letter = filters.season;
 
   try {
-    const res = await jikanApi.get<{ data: JikanAnime[] }>('/anime', { params });
-    return res.data.data;
+    const res = await api.get<Record<string, any>>('/search', { params: { q: query, offset, limit, min_rating: filters?.min_rating, year: filters?.year, season: filters?.season } });
+    const items = Object.entries(res.data).map(([mal_id, episodes]) => ({ mal_id: Number(mal_id), title: `MAL ${mal_id}`, images: { jpg: { image_url: "", large_image_url: ""} }, episodes } as any));
+    if (items.length > 0) return items as JikanAnime[];
+    const jikanRes = await jikanApi.get<{ data: JikanAnime[] }>('/anime', { params });
+    return jikanRes.data.data;
   } catch (e) {
     throw normalizeError(e);
   }

@@ -1,67 +1,41 @@
-import json
+from typing import Any, Dict, List
+
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
-from typing import List, Dict, Any
-from app.db.models import Anime, UserAnime, User
+
+from app.db.models import Anime, UserAnime
+
 
 class RecommendationService:
     async def get_recommendations(self, db: AsyncSession, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
-        # 1. Get user's favorites and highly rated anime
-        stmt = select(UserAnime).filter(
+        liked_stmt = select(UserAnime).filter(
             UserAnime.user_id == user_id,
-            or_(UserAnime.is_favorite == True, UserAnime.score >= 8)
+            or_(UserAnime.is_favorite.is_(True), UserAnime.score >= 8),
         )
-        res = await db.execute(stmt)
-        user_animes = res.scalars().all()
+        user_animes = (await db.execute(liked_stmt)).scalars().all()
 
         if not user_animes:
-            # Fallback: Popular/Top rated anime
-            stmt = select(Anime).order_by(Anime.score.desc()).limit(limit)
-            res = await db.execute(stmt)
-            animes = res.scalars().all()
-            return self._format(animes)
+            return await self._top_rated(db, limit)
 
-        # 2. Extract genres from these animes
         mal_ids = [ua.anime_mal_id for ua in user_animes]
-        stmt = select(Anime).filter(Anime.mal_id.in_(mal_ids))
-        res = await db.execute(stmt)
-        liked_animes = res.scalars().all()
+        liked_animes = (await db.execute(select(Anime).filter(Anime.mal_id.in_(mal_ids)))).scalars().all()
 
-        genres = set()
+        genre_names: set[str] = set()
         for anime in liked_animes:
-            if anime.genres:
-                try:
-                    # anime.genres is now JSONB (list of objects or strings)
-                    g_list = anime.genres
-                    if isinstance(g_list, list):
-                        for g in g_list:
-                            if isinstance(g, dict):
-                                genres.add(g.get("name", ""))
-                            else:
-                                genres.add(str(g))
-                except:
-                    pass
+            if not isinstance(anime.genres, list):
+                continue
+            for genre in anime.genres:
+                if isinstance(genre, dict) and genre.get("name"):
+                    genre_names.add(str(genre["name"]))
+                elif isinstance(genre, str):
+                    genre_names.add(genre)
 
-        if not genres:
-             # Fallback
-            stmt = select(Anime).order_by(Anime.score.desc()).limit(limit)
-            res = await db.execute(stmt)
-            animes = res.scalars().all()
-            return self._format(animes)
+        if not genre_names:
+            return await self._top_rated(db, limit)
 
-        # 3. Find other animes with similar genres, excluding already watched
-        # Simple content-based filtering: find animes that share at least one genre
-        watched_stmt = select(UserAnime.anime_mal_id).filter(UserAnime.user_id == user_id)
-        watched_res = await db.execute(watched_stmt)
-        watched_ids = watched_res.scalars().all()
+        watched_ids = (await db.execute(select(UserAnime.anime_mal_id).filter(UserAnime.user_id == user_id))).scalars().all()
 
-        # Build a query to search by genres using JSONB contains or similar
-        # For simplicity and broad compatibility with existing data format
-        # we can use @> if it was a flat list, but let's use a safe approach
-        genre_filters = [Anime.genres.cast(text("text")).ilike(f"%{g}%") for g in genres if g]
-        if not genre_filters:
-            return self._format([])
-
+        genre_filters = [Anime.genres.contains([{"name": name}]) for name in genre_names]
         stmt = (
             select(Anime)
             .filter(or_(*genre_filters))
@@ -69,10 +43,12 @@ class RecommendationService:
             .order_by(Anime.score.desc())
             .limit(limit)
         )
-        res = await db.execute(stmt)
-        recommendations = res.scalars().all()
-
+        recommendations = (await db.execute(stmt)).scalars().all()
         return self._format(recommendations)
+
+    async def _top_rated(self, db: AsyncSession, limit: int) -> List[Dict[str, Any]]:
+        animes = (await db.execute(select(Anime).order_by(Anime.score.desc()).limit(limit))).scalars().all()
+        return self._format(animes)
 
     def _format(self, animes: List[Anime]) -> List[Dict[str, Any]]:
         return [{
@@ -81,7 +57,8 @@ class RecommendationService:
             "image_url": a.image_url,
             "score": a.score,
             "type": a.type,
-            "year": a.year
+            "year": a.year,
         } for a in animes]
+
 
 recommendation_service = RecommendationService()
