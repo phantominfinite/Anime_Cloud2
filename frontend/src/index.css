@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-darker text-white font-vazir selection:bg-primary selection:text-white;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.glass {
+  @apply bg-dark/80 backdrop-blur-xl border border-white/5;
+}
+
+.glass-heavy {
+  @apply bg-dark/90 backdrop-blur-2xl border border-white/10;
+}
