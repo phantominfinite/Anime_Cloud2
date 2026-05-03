@@ -4,6 +4,7 @@ import json
 import logging
 from urllib.parse import parse_qsl
 from fastapi import Header, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
@@ -11,8 +12,11 @@ from typing import Optional
 from app.core.config import settings
 from app.db.session import get_db
 from app.db.models import User
+from app.services.jwt import decode_access_token
 
 logger = logging.getLogger(__name__)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
 def validate_telegram_data(init_data: str, bot_token: str) -> bool:
     """
@@ -37,15 +41,26 @@ def validate_telegram_data(init_data: str, bot_token: str) -> bool:
 
 async def get_current_user(
     x_telegram_init_data: Optional[str] = Header(None),
+    token: Optional[str] = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
     """
-    Dependency that validates Telegram data and returns the User object.
-    Creates the user if they don't exist.
+    Dependency that validates Telegram data OR JWT token and returns the User object.
+    Creates the user if they don't exist (Telegram only).
     """
+    # 1. Try JWT
+    if token:
+        payload = decode_access_token(token)
+        if payload:
+            telegram_id = payload.get("sub")
+            if telegram_id:
+                result = await db.execute(select(User).filter(User.telegram_id == int(telegram_id)))
+                user = result.scalars().first()
+                if user:
+                    return user
+
+    # 2. Try Telegram Init Data
     if not x_telegram_init_data:
-        # Allow anonymous access for public endpoints. Use require_user
-        # dependency for protected routes.
         return None
 
     if not settings.BOT_TOKEN:

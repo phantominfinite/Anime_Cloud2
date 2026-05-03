@@ -11,7 +11,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.v1.endpoints import anime, system, user
+from app.api.v1.endpoints import anime, system, user, auth, admin
 from app.core.config import settings
 from app.db.schema import ensure_schema
 from app.db.session import Base, engine
@@ -134,6 +134,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(anime.router, prefix="/api", tags=["api"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(user.router, prefix="/api", tags=["user"])
+app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(admin.router, prefix="/api", tags=["admin"])
 
 # Static Files (Frontend) - mount last
 # We need to serve index.html for 404s to support SPA routing (React Router)

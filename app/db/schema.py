@@ -21,29 +21,60 @@ async def ensure_schema(engine: AsyncEngine) -> None:
     Currently ensures:
     - user_animes.progress_time
     - user_animes.last_watched_at
+    - animes.search_vector
     """
 
     async with engine.begin() as conn:
         dialect = conn.dialect.name
 
-        def _get_cols(sync_conn):
+        def _get_user_anime_cols(sync_conn):
             insp = inspect(sync_conn)
             return {c["name"] for c in insp.get_columns("user_animes")}
 
+        def _get_anime_cols(sync_conn):
+            insp = inspect(sync_conn)
+            return {c["name"] for c in insp.get_columns("animes")}
+
         try:
-            cols = await conn.run_sync(_get_cols)
+            ua_cols = await conn.run_sync(_get_user_anime_cols)
+            a_cols = await conn.run_sync(_get_anime_cols)
         except Exception as e:
             logger.warning("Schema inspection failed: %s", e)
             return
 
         stmts: list[str] = []
-        if "progress_time" not in cols:
+        if "progress_time" not in ua_cols:
             stmts.append("ALTER TABLE user_animes ADD COLUMN progress_time INTEGER")
-        if "last_watched_at" not in cols:
+        if "last_watched_at" not in ua_cols:
             if dialect == "postgresql":
                 stmts.append("ALTER TABLE user_animes ADD COLUMN last_watched_at TIMESTAMP")
             else:
                 stmts.append("ALTER TABLE user_animes ADD COLUMN last_watched_at DATETIME")
+
+        if dialect == "postgresql":
+            if "search_vector" not in a_cols:
+                stmts.append("ALTER TABLE animes ADD COLUMN search_vector TSVECTOR")
+                stmts.append("CREATE INDEX idx_anime_search_vector ON animes USING GIN (search_vector)")
+                # Update existing rows
+                stmts.append("UPDATE animes SET search_vector = to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, ''))")
+                # Trigger for automatic updates
+                stmts.append("""
+                    CREATE OR REPLACE FUNCTION anime_search_vector_update() RETURNS trigger AS $$
+                    BEGIN
+                        new.search_vector := to_tsvector('english', coalesce(new.title, '') || ' ' || coalesce(new.description, ''));
+                        RETURN new;
+                    END
+                    $$ LANGUAGE plpgsql;
+                """)
+                stmts.append("""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tsvectorupdate') THEN
+                            CREATE TRIGGER tsvectorupdate BEFORE INSERT OR UPDATE
+                            ON animes FOR EACH ROW EXECUTE FUNCTION anime_search_vector_update();
+                        END IF;
+                    END $$;
+                """)
 
         for stmt in stmts:
             try:

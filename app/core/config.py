@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # IMPORTANT: Do NOT ship with a default key. In production, this must be set.
     ADMIN_API_KEY: Optional[str] = Field(default=None, env="ADMIN_API_KEY")
 
+    JWT_SECRET_KEY: str = Field("supersecretkeyforjwtatleast32characterslong", env="JWT_SECRET_KEY")
+    JWT_ALGORITHM: str = Field("HS256", env="JWT_ALGORITHM")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(60 * 24 * 7, env="ACCESS_TOKEN_EXPIRE_MINUTES") # 7 days
+
     # Comma-separated origins. Use "*" only for development.
     CORS_ORIGINS: str = Field("*", env="CORS_ORIGINS")
 
