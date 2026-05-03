@@ -52,7 +52,8 @@ class ConnectionManager:
             if anime_mal_id not in self.local_rooms:
                 self.local_rooms[anime_mal_id] = set()
             self.local_rooms[anime_mal_id].add(websocket)
-        
+            await self._broadcast_room_count(anime_mal_id)
+
         await self.broadcast_user_count()
 
     async def disconnect(self, websocket: WebSocket, anime_mal_id: str = None):
@@ -61,7 +62,8 @@ class ConnectionManager:
             self.local_rooms[anime_mal_id].discard(websocket)
             if not self.local_rooms[anime_mal_id]:
                 del self.local_rooms[anime_mal_id]
-        
+            await self._broadcast_room_count(anime_mal_id)
+
         await self.broadcast_user_count()
 
     async def _send_to_all_local(self, message: dict):
@@ -78,6 +80,10 @@ class ConnectionManager:
                     await ws.send_json(message)
                 except:
                     self.local_rooms[anime_mal_id].discard(ws)
+
+    async def _broadcast_room_count(self, anime_mal_id: str):
+        count = len(self.local_rooms.get(anime_mal_id, set()))
+        await self.broadcast_room(anime_mal_id, {"type": "watching_count", "anime_mal_id": anime_mal_id, "count": count})
 
     async def broadcast(self, message: dict):
         """Global broadcast via Redis Pub/Sub."""

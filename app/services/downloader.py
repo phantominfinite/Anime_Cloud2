@@ -76,54 +76,45 @@ class SmartDownloader:
             max_retries = 5
             retry_delay = 1
 
-            for attempt in range(max_retries):
-                try:
-                    if await cache_service.exists(file_id, chunk_index):
+            try:
+                for attempt in range(max_retries):
+                    try:
+                        if await cache_service.exists(file_id, chunk_index):
+                            if not future.done():
+                                future.set_result(True)
+                            return
+
+                        client = self._get_next_client()
+                        offset = chunk_index * self.chunk_size
+
+                        decoded = FileId.decode(file_id)
+                        location = decoded.file_type.location(
+                            id=decoded.media_id,
+                            access_hash=decoded.access_hash,
+                            file_reference=decoded.file_reference,
+                        )
+
+                        r = await client.invoke(GetFile(location=location, offset=offset, limit=self.chunk_size))
+                        await cache_service.save_chunk(file_id, chunk_index, r.bytes)
+
                         if not future.done():
                             future.set_result(True)
                         return
+                    except FloodWait as e:
+                        wait_for = min(int(e.value), 30)
+                        logger.warning(f"FloodWait on client: {e.value}s. Retrying in {wait_for}s.")
+                        await asyncio.sleep(wait_for)
+                    except Exception as e:
+                        logger.error(f"Attempt {attempt + 1} failed for {file_id}/{chunk_index}: {e}")
+                        await asyncio.sleep(retry_delay * (2 ** attempt))
 
-                    client = self._get_next_client()
-
-                    offset = chunk_index * self.chunk_size
-                    limit = self.chunk_size
-
-                    decoded = FileId.decode(file_id)
-                    location = decoded.file_type.location(
-                        id=decoded.media_id,
-                        access_hash=decoded.access_hash,
-                        file_reference=decoded.file_reference
-                    )
-
-                    r = await client.invoke(
-                        GetFile(
-                            location=location,
-                            offset=offset,
-                            limit=limit
-                        )
-                    )
-
-                    chunk_data = r.bytes
-                    await cache_service.save_chunk(file_id, chunk_index, chunk_data)
-
-                    if not future.done():
-                        future.set_result(True)
-                    return
-
-                except FloodWait as e:
-                    logger.warning(f"FloodWait on client: {e.value}s. Retrying with another client if possible.")
-                    await asyncio.sleep(e.value)
-                except Exception as e:
-                    logger.error(f"Attempt {attempt + 1} failed for {file_id}/{chunk_index}: {e}")
-                    await asyncio.sleep(retry_delay * (2 ** attempt))
-
-            if not future.done():
-                future.set_exception(Exception("Max retries exceeded"))
-
-            async with self._lock:
-                key = (file_id, chunk_index)
-                if key in self.pending_chunks and self.pending_chunks[key] is future:
-                    del self.pending_chunks[key]
+                if not future.done():
+                    future.set_exception(Exception("Max retries exceeded"))
+            finally:
+                async with self._lock:
+                    key = (file_id, chunk_index)
+                    if key in self.pending_chunks and self.pending_chunks[key] is future:
+                        del self.pending_chunks[key]
 
 downloader = None 
 

@@ -27,13 +27,25 @@ class CacheService:
 
         # File path -> lock to prevent eviction while reading/writing
         self._locks: dict[str, asyncio.Lock] = {}
+        self._lock_usage: dict[str, int] = {}
         self._global_lock = asyncio.Lock()
 
-    async def _get_file_lock(self, path: str) -> asyncio.Lock:
+    async def _acquire_file_lock(self, path: str) -> asyncio.Lock:
         async with self._global_lock:
-            if path not in self._locks:
-                self._locks[path] = asyncio.Lock()
-            return self._locks[path]
+            lock = self._locks.get(path)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[path] = lock
+                self._lock_usage[path] = 0
+            self._lock_usage[path] = self._lock_usage.get(path, 0) + 1
+            return lock
+
+    async def _release_file_lock(self, path: str, lock: asyncio.Lock) -> None:
+        async with self._global_lock:
+            self._lock_usage[path] = max(0, self._lock_usage.get(path, 1) - 1)
+            if self._lock_usage[path] == 0 and not lock.locked():
+                self._lock_usage.pop(path, None)
+                self._locks.pop(path, None)
 
     def _get_chunk_path(self, file_id: str, chunk_index: int) -> str:
         safe_file_id = hashlib.md5(file_id.encode()).hexdigest()
@@ -48,42 +60,47 @@ class CacheService:
     async def get_chunk(self, file_id: str, chunk_index: int) -> bytes | None:
         path = self._get_chunk_path(file_id, chunk_index)
         if os.path.exists(path):
-            lock = await self._get_file_lock(path)
-            async with lock:
-                try:
-                    asyncio.create_task(redis_service.update_access(path))
-                    async with aiofiles.open(path, mode="rb") as f:
-                        return await f.read()
-                except Exception as e:
-                    logger.error(f"Error reading cache for {file_id}/{chunk_index}: {e}")
-                    return None
+            lock = await self._acquire_file_lock(path)
+            try:
+                async with lock:
+                    try:
+                        asyncio.create_task(redis_service.update_access(path))
+                        async with aiofiles.open(path, mode="rb") as f:
+                            return await f.read()
+                    except Exception as e:
+                        logger.error(f"Error reading cache for {file_id}/{chunk_index}: {e}")
+                        return None
+            finally:
+                await self._release_file_lock(path, lock)
         return None
 
     async def save_chunk(self, file_id: str, chunk_index: int, data: bytes):
         path = self._get_chunk_path(file_id, chunk_index)
         temp_path = f"{path}.tmp"
-        lock = await self._get_file_lock(path)
+        lock = await self._acquire_file_lock(path)
 
-        async with lock:
-            try:
-                async with aiofiles.open(temp_path, mode="wb") as f:
-                    await f.write(data)
-                os.replace(temp_path, path)
+        try:
+            async with lock:
+                try:
+                    async with aiofiles.open(temp_path, mode="wb") as f:
+                        await f.write(data)
+                    os.replace(temp_path, path)
 
-                asyncio.create_task(redis_service.update_access(path))
+                    asyncio.create_task(redis_service.update_access(path))
 
-                now = time.monotonic()
-                if now - self._last_size_check >= self._size_check_interval_seconds:
-                    self._last_size_check = now
-                    asyncio.create_task(self._check_cache_size())
-
-            except Exception as e:
-                logger.error(f"Error writing cache for {file_id}/{chunk_index}: {e}")
-                if os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                    except Exception:
-                        pass
+                    now = time.monotonic()
+                    if now - self._last_size_check >= self._size_check_interval_seconds:
+                        self._last_size_check = now
+                        asyncio.create_task(self._check_cache_size())
+                except Exception as e:
+                    logger.error(f"Error writing cache for {file_id}/{chunk_index}: {e}")
+                    if os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except Exception:
+                            pass
+        finally:
+            await self._release_file_lock(path, lock)
 
     async def _check_cache_size(self):
         if self._evict_lock.locked():
@@ -107,20 +124,23 @@ class CacheService:
                         if not os.path.exists(fp):
                             continue
 
-                        lock = await self._get_file_lock(fp)
+                        lock = await self._acquire_file_lock(fp)
                         # Use trylock to avoid blocking eviction process if file is busy
                         # or just wait briefly.
                         if lock.locked():
                             continue
 
-                        async with lock:
-                            try:
-                                if os.path.exists(fp):
-                                    size = os.path.getsize(fp)
-                                    os.remove(fp)
-                                    total_size -= size
-                            except Exception as e:
-                                logger.warning(f"Failed to delete {fp}: {e}")
+                        try:
+                            async with lock:
+                                try:
+                                    if os.path.exists(fp):
+                                        size = os.path.getsize(fp)
+                                        os.remove(fp)
+                                        total_size -= size
+                                except Exception as e:
+                                    logger.warning(f"Failed to delete {fp}: {e}")
+                        finally:
+                            await self._release_file_lock(fp, lock)
 
             except Exception as e:
                 logger.error(f"Error checking cache size: {e}")

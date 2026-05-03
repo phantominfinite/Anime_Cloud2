@@ -199,12 +199,12 @@ class CommentCreate(BaseModel):
     text: str
 
 @router.get("/anime/{mal_id}/comments")
-async def get_comments(mal_id: str, db: AsyncSession = Depends(get_db)):
+async def get_comments(mal_id: str, offset: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Comment)
         .filter(Comment.anime_mal_id == mal_id)
         .order_by(Comment.created_at.desc())
-        .limit(50)
+        .offset(offset).limit(limit)
     )
     comments = result.scalars().all()
     items = [{
@@ -268,13 +268,13 @@ async def like_comment(comment_id: int, db: AsyncSession = Depends(get_db)):
     return {"ok": True, "likes": comment.likes}
 
 @router.get("/search", response_model=Dict[str, List[Dict[str, Any]]])
-async def search(q: str = Query(..., min_length=1), db: AsyncSession = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
+async def search(q: str = Query(..., min_length=1), offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), min_rating: Optional[float] = Query(None, ge=0, le=10), year: Optional[int] = Query(None, ge=1960, le=2100), season: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
     """
     Search for episodes or animes by title or label.
     Refactored to use SearchService for smarter anime lookup.
     """
     # First search for Anime
-    animes = await search_service.search_anime(db, q)
+    animes = await search_service.search_anime(db, q, limit=limit, offset=offset, min_rating=min_rating, year=year, season=season)
     
     data: Dict[str, List[Dict[str, Any]]] = {}
     
@@ -299,7 +299,7 @@ async def search(q: str = Query(..., min_length=1), db: AsyncSession = Depends(g
     # This covers cases where episode label matches but anime title doesn't (rare but possible)
     if not data:
         stmt = select(Episode).join(Anime).filter(Episode.label.ilike(f"%{q}%"))
-        result = await db.execute(stmt.limit(50))
+        result = await db.execute(stmt.offset(offset).limit(limit))
         episodes = result.scalars().all()
         for ep in episodes:
             if ep.anime_mal_id not in data:
