@@ -129,26 +129,35 @@ export const likeComment = async (commentId: number): Promise<{ ok: boolean, lik
 
 export const getMe = async (): Promise<UserMe> => {
   try {
-    const res = await api.get<UserMe>('/user/me');
-    return res.data;
+    const res = await api.get<{ ok: boolean; user: UserMe }>('/user/me');
+    return res.data.user;
   } catch (e) {
     throw normalizeError(e);
   }
 };
 
-export const getLibrary = async (): Promise<{ items: any[] }> => {
+export interface LibraryItem {
+  anime_mal_id: string;
+  status?: string;
+  is_favorite?: boolean;
+  score?: number | null;
+  progress_episode?: string | null;
+  progress_time?: number | null;
+}
+
+export const getLibrary = async (): Promise<{ items: LibraryItem[] }> => {
   try {
-    const res = await api.get<{ items: any[] }>('/user/library');
-    return res.data;
+    const res = await api.get<{ ok: boolean; items: LibraryItem[] }>('/user/library');
+    return { items: res.data.items || [] };
   } catch (e) {
     throw normalizeError(e);
   }
 };
 
-export const getContinueWatching = async (): Promise<{ items: any[] }> => {
+export const getContinueWatching = async (): Promise<{ items: LibraryItem[] }> => {
   try {
-    const res = await api.get<{ items: any[] }>('/user/continue');
-    return res.data;
+    const res = await api.get<{ ok: boolean; items: LibraryItem[] }>('/user/continue');
+    return { items: res.data.items || [] };
   } catch (e) {
     throw normalizeError(e);
   }

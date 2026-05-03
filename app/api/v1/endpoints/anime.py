@@ -207,13 +207,14 @@ async def get_comments(mal_id: str, db: AsyncSession = Depends(get_db)):
         .limit(50)
     )
     comments = result.scalars().all()
-    return [{
+    items = [{
         "id": c.id,
-        "user": c.user_name,
+        "user_name": c.user_name,
         "text": c.text,
         "likes": c.likes,
         "date": c.created_at.strftime("%Y/%m/%d")
     } for c in comments]
+    return {"ok": True, "items": items, "comments": items}
 
 @router.post("/anime/{mal_id}/comments")
 async def post_comment(
