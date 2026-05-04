@@ -154,7 +154,7 @@ export const Home = () => {
               {continueItems.slice(0, 3).map((it) => (
                 <Link
                   key={it.anime_mal_id}
-                  to={`/anime/${it.anime_mal_id}#ep=${encodeURIComponent(it.progress_episode)}`}
+                  to={`/watch/${it.anime_mal_id}/${encodeURIComponent(it.progress_episode)}`}
                   className="group relative overflow-hidden rounded-[32px] border border-white/10 bg-white/5 backdrop-blur-3xl p-8 hover:bg-white/10 transition-all duration-500"
                 >
                   <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-100 transition-opacity">

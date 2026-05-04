@@ -6,6 +6,7 @@ import { Watch } from './pages/Watch';
 import Search from './pages/Search';
 import Library from './pages/Library';
 import Profile from './pages/Profile';
+import Details from './pages/Details';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -16,6 +17,8 @@ const AnimatedRoutes = () => {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
         <Route path="/anime/:id" element={<PageWrapper><Watch /></PageWrapper>} />
+        <Route path="/anime/:id/details" element={<PageWrapper><Details /></PageWrapper>} />
+        <Route path="/watch/:id/:episode" element={<PageWrapper><Watch /></PageWrapper>} />
         <Route path="/search" element={<PageWrapper><Search /></PageWrapper>} />
         <Route path="/library" element={<PageWrapper><Library /></PageWrapper>} />
         <Route path="/profile" element={<PageWrapper><Profile /></PageWrapper>} />

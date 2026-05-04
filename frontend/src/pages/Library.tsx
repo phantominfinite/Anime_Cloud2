@@ -19,29 +19,26 @@ export default function Library() {
 
   const canUse = useMemo(() => !!getTelegramInitData(), []);
 
-  const hydrate = async (list: LibItem[]) => {
-    const ids = Array.from(new Set(list.map((x) => x.anime_mal_id))).slice(0, 40);
-    const pairs = await Promise.all(
-      ids.map(async (id) => {
-        try {
-          const a = await getAnime(id);
-          return [id, a.anime] as const;
-        } catch {
-          return [id, { mal_id: id, title: `MAL: ${id}` }] as const;
-        }
-      })
-    );
-    setDetails(Object.fromEntries(pairs));
-  };
-
   const load = async () => {
     if (!canUse) return;
     setLoading(true);
     try {
       const res = tab === 'continue' ? await getContinueWatching() : await getLibrary();
-      const list: LibItem[] = res.items || [];
+      const list: any[] = res.items || [];
       setItems(list);
-      await hydrate(list);
+
+      // Update details cache from the items we just got (backend now includes metadata)
+      const newDetails = { ...details };
+      list.forEach(it => {
+          if (it.title) {
+              newDetails[it.anime_mal_id] = {
+                  mal_id: it.anime_mal_id,
+                  title: it.title,
+                  image_url: it.image_url
+              } as AnimeLite;
+          }
+      });
+      setDetails(newDetails);
     } finally {
       setLoading(false);
     }
@@ -91,7 +88,7 @@ export default function Library() {
             return (
               <Link
                 key={`${it.anime_mal_id}-${it.progress_episode || ''}`}
-                to={`/anime/${it.anime_mal_id}${it.progress_episode ? `#ep=${encodeURIComponent(it.progress_episode)}` : ''}`}
+                to={it.progress_episode ? `/watch/${it.anime_mal_id}/${encodeURIComponent(it.progress_episode)}` : `/anime/${it.anime_mal_id}`}
                 className="group rounded-2xl border border-white/10 bg-white/5 overflow-hidden hover:bg-white/10 transition"
               >
                 <div className="aspect-[2/3] bg-black/40">
