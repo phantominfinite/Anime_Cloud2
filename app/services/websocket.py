@@ -23,23 +23,34 @@ class ConnectionManager:
             logger.warning("WebSocket scaling disabled: using MockRedis (no Pub/Sub)")
             return
 
-        pubsub = redis_service.client.pubsub()
-        await pubsub.subscribe("ws_broadcast", "ws_room_broadcast")
-
         async def listen():
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    try:
-                        data = json.loads(message["data"])
-                        target_room = data.get("_room")
-                        payload = data.get("payload")
+            while True:
+                pubsub = None
+                try:
+                    pubsub = redis_service.client.pubsub()
+                    await pubsub.subscribe("ws_broadcast", "ws_room_broadcast")
+                    async for message in pubsub.listen():
+                        if message["type"] == "message":
+                            try:
+                                data = json.loads(message["data"])
+                                target_room = data.get("_room")
+                                payload = data.get("payload")
 
-                        if target_room:
-                            await self._send_to_local_room(target_room, payload)
-                        else:
-                            await self._send_to_all_local(payload)
-                    except Exception as e:
-                        logger.error(f"Error in pubsub listen: {e}")
+                                if target_room:
+                                    await self._send_to_local_room(target_room, payload)
+                                else:
+                                    await self._send_to_all_local(payload)
+                            except Exception as e:
+                                logger.error(f"Error in pubsub message handling: {e}")
+                except Exception as e:
+                    logger.exception(f"Pub/Sub listener crashed, retrying in 5 seconds: {e}")
+                    await asyncio.sleep(5)
+                finally:
+                    if pubsub is not None:
+                        try:
+                            await pubsub.close()
+                        except Exception:
+                            pass
 
         self.pubsub_task = asyncio.create_task(listen())
 

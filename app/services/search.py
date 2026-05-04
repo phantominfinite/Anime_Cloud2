@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, select, text
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Anime
@@ -28,13 +28,13 @@ class SearchService:
         if db.bind.dialect.name == "postgresql":
             q = (
                 select(Anime)
-                .filter(Anime.search_vector.op("@@")(text("plainto_tsquery('english', :q)")))
+                .filter(func.to_tsvector('english', Anime.title).op('@@')(func.plainto_tsquery('english', query)))
                 .filter(and_(*filters) if filters else text('TRUE'))
-                .order_by(text("ts_rank(search_vector, plainto_tsquery('english', :q)) DESC"))
+                .order_by(func.ts_rank(func.to_tsvector('english', Anime.title), func.plainto_tsquery('english', query)).desc())
                 .distinct(Anime.id)
                 .offset(offset)
                 .limit(limit)
-                .params(q=query)
+                
             )
         else:
             q = (
