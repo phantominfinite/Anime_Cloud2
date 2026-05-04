@@ -15,3 +15,5 @@ psycopg2-binary==2.9.9
 httpx
 cryptography==47.0.0
 PyJWT==2.12.1
+
+pytest-asyncio==0.23.8
