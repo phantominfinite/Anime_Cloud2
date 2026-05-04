@@ -51,10 +51,36 @@ const normalizeError = (e: unknown): Error => {
 
 // -------------------- Backend API --------------------
 
-export interface AvailableAnime { mal_id: string; episodes: number }
-export interface AnimeLite { mal_id: string; title: string; image_url?: string | null; score?: number | null; type?: string | null; year?: number | null; description?: string | null }
-export interface Episode { episode_number: string; label?: string | null; quality?: string | null; url: string }
-export interface AnimeWithEpisodes { anime: AnimeLite; episodes: Episode[] }
+export interface AvailableAnime {
+  mal_id: string;
+  title: string;
+  image_url?: string;
+  episodes: number;
+}
+
+export interface AnimeLite {
+  mal_id: string;
+  title: string;
+  image_url?: string | null;
+  score?: number | null;
+  type?: string | null;
+  year?: number | null;
+  description?: string | null;
+  status?: string | null;
+  is_available?: boolean;
+}
+
+export interface Episode {
+  episode_number: string;
+  label?: string | null;
+  quality?: string | null;
+  url: string;
+}
+
+export interface AnimeWithEpisodes {
+  anime: AnimeLite;
+  episodes: Episode[];
+}
 
 export interface Comment {
   id: number;
@@ -100,9 +126,9 @@ export const getAnimeEpisodes = async (malId: string): Promise<Episode[]> => {
   }
 };
 
-export const getComments = async (malId: string, offset = 0, limit = 30): Promise<{ items?: Comment[], comments?: Comment[] }> => {
+export const getComments = async (malId: string, offset = 0, limit = 30): Promise<{ items: Comment[] }> => {
   try {
-    const res = await api.get<{ items?: Comment[], comments?: Comment[] }>(`/anime/${malId}/comments?offset=${offset}&limit=${limit}`);
+    const res = await api.get<{ items: Comment[] }>(`/anime/${malId}/comments?offset=${offset}&limit=${limit}`);
     return res.data;
   } catch (e) {
     throw normalizeError(e);
@@ -111,7 +137,7 @@ export const getComments = async (malId: string, offset = 0, limit = 30): Promis
 
 export const postComment = async (malId: string, user_name: string, text: string): Promise<{ ok: boolean }> => {
   try {
-    const res = await api.post<{ ok: boolean }>(`/anime/${malId}/comments?offset=${offset}&limit=${limit}`, { user_name, text });
+    const res = await api.post<{ ok: boolean }>(`/anime/${malId}/comments`, { user_name, text });
     return res.data;
   } catch (e) {
     throw normalizeError(e);
@@ -143,6 +169,8 @@ export interface LibraryItem {
   score?: number | null;
   progress_episode?: string | null;
   progress_time?: number | null;
+  title?: string;
+  image_url?: string;
 }
 
 export const getLibrary = async (): Promise<{ items: LibraryItem[] }> => {
@@ -184,22 +212,64 @@ export interface JikanAnime {
   type?: string;
   year?: number;
   synopsis?: string;
+  is_available?: boolean;
 }
 
 export const searchAnime = async (query: string, filters?: { status?: string, type?: string, min_rating?: number, year?: number, season?: string }, offset = 0, limit = 20): Promise<JikanAnime[]> => {
-  const params: Record<string, any> = { q: query, limit };
-  if (filters?.status) params.status = filters.status;
-  if (filters?.type) params.type = filters.type;
-  if (filters?.min_rating) params.min_score = filters.min_rating;
-  if (filters?.year) params.start_date = `${filters.year}-01-01`;
-  if (filters?.season) params.letter = filters.season;
-
   try {
-    const res = await api.get<Record<string, any>>('/search', { params: { q: query, offset, limit, min_rating: filters?.min_rating, year: filters?.year, season: filters?.season } });
-    const items = Object.entries(res.data).map(([mal_id, episodes]) => ({ mal_id: Number(mal_id), title: `MAL ${mal_id}`, images: { jpg: { image_url: "", large_image_url: ""} }, episodes } as any));
-    if (items.length > 0) return items as JikanAnime[];
-    const jikanRes = await jikanApi.get<{ data: JikanAnime[] }>('/anime', { params });
-    return jikanRes.data.data;
+    // Search local backend first
+    const res = await api.get<AnimeLite[]>('/search', {
+        params: {
+            q: query,
+            offset,
+            limit,
+            min_rating: filters?.min_rating,
+            year: filters?.year,
+            season: filters?.season
+        }
+    });
+
+    const localResults: JikanAnime[] = res.data.map(a => ({
+        mal_id: parseInt(a.mal_id),
+        title: a.title,
+        images: { jpg: { image_url: a.image_url || '', large_image_url: a.image_url || '' } },
+        score: a.score || 0,
+        type: a.type || '',
+        year: a.year || 0,
+        synopsis: a.description || '',
+        is_available: true
+    }));
+
+    // If we have enough local results, return them
+    if (localResults.length >= limit) return localResults;
+
+    // Fetch from Jikan to fill the rest
+    const jikanParams: Record<string, any> = { q: query, limit: limit - localResults.length };
+    if (filters?.status) jikanParams.status = filters.status;
+    if (filters?.type) jikanParams.type = filters.type;
+    if (filters?.min_rating) jikanParams.min_score = filters.min_rating;
+    if (filters?.year) jikanParams.start_date = `${filters.year}-01-01`;
+
+    try {
+        const jikanRes = await jikanApi.get<{ data: any[] }>('/anime', { params: jikanParams });
+        const jikanResults: JikanAnime[] = jikanRes.data.data.map(a => ({
+            mal_id: a.mal_id,
+            title: a.title,
+            images: a.images,
+            score: a.score,
+            type: a.type,
+            year: a.year,
+            synopsis: a.synopsis,
+            is_available: false
+        }));
+
+        // Filter out Jikan results that are already in local results
+        const combined = [...localResults, ...jikanResults.filter(j => !localResults.some(l => l.mal_id === j.mal_id))];
+        return combined;
+    } catch (je) {
+        console.warn("Jikan fallback failed", je);
+        return localResults;
+    }
   } catch (e) {
     throw normalizeError(e);
   }

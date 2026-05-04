@@ -4,11 +4,24 @@ from sqlalchemy import select
 from typing import Dict, Any, Optional
 
 from app.db.session import get_db
-from app.db.models import User, UserAnime
+from app.db.models import User, UserAnime, Anime
 from app.services.auth import require_user
 from pydantic import BaseModel
 
 router = APIRouter()
+
+class UserAnimeOut(BaseModel):
+    anime_mal_id: str
+    status: Optional[str] = None
+    is_favorite: bool = False
+    score: Optional[int] = None
+    progress_episode: Optional[str] = None
+    progress_time: Optional[int] = None
+    last_watched_at: Optional[str] = None
+    # Added metadata to avoid waterfalls
+    title: Optional[str] = None
+    image_url: Optional[str] = None
+
 
 class UserAnimeUpdate(BaseModel):
     # All fields are optional so the frontend can PATCH-like update.
@@ -17,6 +30,7 @@ class UserAnimeUpdate(BaseModel):
     score: Optional[int] = None
     progress_episode: Optional[str] = None
     progress_time: Optional[int] = None  # seconds
+
 
 @router.get("/user/me")
 async def me(user: User = Depends(require_user)):
@@ -38,21 +52,30 @@ async def get_library(user: User = Depends(require_user), db: AsyncSession = Dep
     """
     Returns user's library (favorites, history).
     """
-    result = await db.execute(select(UserAnime).filter(UserAnime.user_id == user.id))
-    items = result.scalars().all()
-    
+    stmt = (
+        select(UserAnime, Anime)
+        .join(Anime, UserAnime.anime_mal_id == Anime.mal_id)
+        .filter(UserAnime.user_id == user.id)
+    )
+    result = await db.execute(stmt)
+    items = result.all()
+
     return {
         "ok": True,
         "items": [
-            {
-                "anime_mal_id": item.anime_mal_id,
-                "status": item.status,
-                "is_favorite": item.is_favorite,
-                "score": item.score,
-                "progress_episode": item.progress_episode
-            }
-            for item in items
-        ]
+            UserAnimeOut(
+                anime_mal_id=ua.anime_mal_id,
+                status=ua.status,
+                is_favorite=ua.is_favorite,
+                score=ua.score,
+                progress_episode=ua.progress_episode,
+                progress_time=ua.progress_time,
+                last_watched_at=ua.last_watched_at.isoformat() if ua.last_watched_at else None,
+                title=anime.title,
+                image_url=anime.image_url,
+            )
+            for ua, anime in items
+        ],
     }
 
 @router.post("/user/library/{mal_id}")
@@ -129,21 +152,29 @@ async def update_progress(
 @router.get("/user/continue")
 async def continue_watching(user: User = Depends(require_user), db: AsyncSession = Depends(get_db)):
     """Return items where the user has progress_episode set."""
-    result = await db.execute(
-        select(UserAnime)
+    stmt = (
+        select(UserAnime, Anime)
+        .join(Anime, UserAnime.anime_mal_id == Anime.mal_id)
         .filter(UserAnime.user_id == user.id)
         .filter(UserAnime.progress_episode.isnot(None))
+        .order_by(UserAnime.last_watched_at.desc())
     )
-    items = result.scalars().all()
+    result = await db.execute(stmt)
+    items = result.all()
     return {
         "ok": True,
         "items": [
-            {
-                "anime_mal_id": it.anime_mal_id,
-                "progress_episode": it.progress_episode,
-                "progress_time": getattr(it, "progress_time", None),
-                "status": it.status,
-            }
-            for it in items
+            UserAnimeOut(
+                anime_mal_id=ua.anime_mal_id,
+                status=ua.status,
+                is_favorite=ua.is_favorite,
+                score=ua.score,
+                progress_episode=ua.progress_episode,
+                progress_time=ua.progress_time,
+                last_watched_at=ua.last_watched_at.isoformat() if ua.last_watched_at else None,
+                title=anime.title,
+                image_url=anime.image_url,
+            )
+            for ua, anime in items
         ],
     }

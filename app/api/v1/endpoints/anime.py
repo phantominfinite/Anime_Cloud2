@@ -38,11 +38,29 @@ class AnimeOut(BaseModel):
     score: float | None = None
     type: str | None = None
     year: int | None = None
+    description: str | None = None
+    status: str | None = None
+    is_available: bool = True
 
 
 class AnimeWithEpisodesOut(BaseModel):
     anime: AnimeOut
     episodes: list[EpisodeOut]
+
+
+class CommentOut(BaseModel):
+    id: int
+    user_name: str
+    text: str
+    likes: int
+    date: str
+
+
+class CommentListOut(BaseModel):
+    ok: bool = True
+    items: List[CommentOut]
+    # For backward compatibility
+    comments: List[CommentOut]
 
 @router.websocket("/ws")
 @router.websocket("/ws/{anime_mal_id}")
@@ -119,15 +137,24 @@ async def list_animes(
 async def available_animes(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Return a compact list of MAL IDs that have at least one episode."""
     stmt = (
-        select(Episode.anime_mal_id, func.count(Episode.id))
-        .group_by(Episode.anime_mal_id)
+        select(Anime, func.count(Episode.id))
+        .join(Episode)
+        .group_by(Anime.id)
         .order_by(func.count(Episode.id).desc())
     )
     res = await db.execute(stmt)
     items = res.all()
     return {
         "ok": True,
-        "items": [{"mal_id": mal_id, "episodes": int(cnt)} for mal_id, cnt in items],
+        "items": [
+            {
+                "mal_id": anime.mal_id,
+                "title": anime.title,
+                "image_url": anime.image_url,
+                "episodes": int(cnt),
+            }
+            for anime, cnt in items
+        ],
     }
 
 
@@ -140,6 +167,8 @@ async def get_anime(mal_id: str, db: AsyncSession = Depends(get_db)) -> AnimeWit
     """
     anime = await db.scalar(select(Anime).filter(Anime.mal_id == mal_id))
     if not anime:
+        # If not in DB, we could optionally try to fetch from Jikan here,
+        # but the current logic is that we only serve what we have episodes for.
         raise HTTPException(status_code=404, detail="Anime not found")
 
     result = await db.execute(
@@ -157,6 +186,9 @@ async def get_anime(mal_id: str, db: AsyncSession = Depends(get_db)) -> AnimeWit
             score=anime.score,
             type=anime.type,
             year=anime.year,
+            description=anime.description,
+            status=anime.status,
+            is_available=True,
         ),
         episodes=[
             EpisodeOut(
@@ -198,23 +230,32 @@ class CommentCreate(BaseModel):
     user_name: str
     text: str
 
-@router.get("/anime/{mal_id}/comments")
-async def get_comments(mal_id: str, offset: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100), db: AsyncSession = Depends(get_db)):
+@router.get("/anime/{mal_id}/comments", response_model=CommentListOut)
+async def get_comments(
+    mal_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(Comment)
         .filter(Comment.anime_mal_id == mal_id)
         .order_by(Comment.created_at.desc())
-        .offset(offset).limit(limit)
+        .offset(offset)
+        .limit(limit)
     )
     comments = result.scalars().all()
-    items = [{
-        "id": c.id,
-        "user_name": c.user_name,
-        "text": c.text,
-        "likes": c.likes,
-        "date": c.created_at.strftime("%Y/%m/%d")
-    } for c in comments]
-    return {"ok": True, "items": items, "comments": items}
+    items = [
+        CommentOut(
+            id=c.id,
+            user_name=c.user_name,
+            text=c.text,
+            likes=c.likes,
+            date=c.created_at.strftime("%Y/%m/%d"),
+        )
+        for c in comments
+    ]
+    return CommentListOut(items=items, comments=items)
 
 @router.post("/anime/{mal_id}/comments")
 async def post_comment(
@@ -267,51 +308,36 @@ async def like_comment(comment_id: int, db: AsyncSession = Depends(get_db)):
     
     return {"ok": True, "likes": comment.likes}
 
-@router.get("/search", response_model=Dict[str, List[Dict[str, Any]]])
-async def search(q: str = Query(..., min_length=1), offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), min_rating: Optional[float] = Query(None, ge=0, le=10), year: Optional[int] = Query(None, ge=1960, le=2100), season: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
+@router.get("/search", response_model=List[AnimeOut])
+async def search(
+    q: str = Query(..., min_length=1),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    min_rating: Optional[float] = Query(None, ge=0, le=10),
+    year: Optional[int] = Query(None, ge=1960, le=2100),
+    season: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> List[AnimeOut]:
     """
-    Search for episodes or animes by title or label.
-    Refactored to use SearchService for smarter anime lookup.
+    Search for animes by title.
+    Returns a list of AnimeOut objects.
     """
-    # First search for Anime
-    animes = await search_service.search_anime(db, q, limit=limit, offset=offset, min_rating=min_rating, year=year, season=season)
-    
-    data: Dict[str, List[Dict[str, Any]]] = {}
-    
-    if animes:
-        # If we found anime, fetch their episodes
-        anime_ids = [a['mal_id'] for a in animes]
-        stmt = select(Episode).filter(Episode.anime_mal_id.in_(anime_ids))
-        result = await db.execute(stmt)
-        episodes = result.scalars().all()
-        
-        for ep in episodes:
-            if ep.anime_mal_id not in data:
-                data[ep.anime_mal_id] = []
-            data[ep.anime_mal_id].append({
-                "episode": ep.episode_number,
-                "label": ep.label,
-                "quality": ep.quality,
-                "url": f"/api/stream/{ep.file_id}"
-            })
-            
-    # Fallback: Search episodes directly if no anime found (or to augment results)
-    # This covers cases where episode label matches but anime title doesn't (rare but possible)
-    if not data:
-        stmt = select(Episode).join(Anime).filter(Episode.label.ilike(f"%{q}%"))
-        result = await db.execute(stmt.offset(offset).limit(limit))
-        episodes = result.scalars().all()
-        for ep in episodes:
-            if ep.anime_mal_id not in data:
-                data[ep.anime_mal_id] = []
-            data[ep.anime_mal_id].append({
-                "episode": ep.episode_number,
-                "label": ep.label,
-                "quality": ep.quality,
-                "url": f"/api/stream/{ep.file_id}"
-            })
-            
-    return data
+    animes = await search_service.search_anime(
+        db, q, limit=limit, offset=offset, min_rating=min_rating, year=year, season=season
+    )
+
+    return [
+        AnimeOut(
+            mal_id=a["mal_id"],
+            title=a["title"],
+            image_url=a["image_url"],
+            score=a["score"],
+            type=a["type"],
+            year=a["year"],
+            is_available=True,
+        )
+        for a in animes
+    ]
 
 @router.get("/stream/{file_id}")
 @router.head("/stream/{file_id}")

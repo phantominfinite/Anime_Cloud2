@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, ListVideo, Heart, Share2, Info, ChevronLeft, Send, ThumbsUp } from 'lucide-react';
 
-import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData, type Episode, type Comment, type AnimeLite } from '../services/api';
+import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData, type Episode, type Comment, type AnimeLite, getMe } from '../services/api';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { useAppStore } from '../store/useAppStore';
 
 export const Watch = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id, episode } = useParams<{ id: string, episode?: string }>();
+  const navigate = useNavigate();
   const [anime, setAnime] = useState<AnimeLite | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [currentEp, setCurrentEp] = useState<Episode | null>(null);
@@ -18,21 +19,20 @@ export const Watch = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [commentName, setCommentName] = useState('Anonymous');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [watchingCount, setWatchingCount] = useState(1);
 
   const { toggleFavorite, isFavorite, addToHistory } = useAppStore();
   const initData = useMemo(() => getTelegramInitData(), []);
 
-  const selectEpisodeFromHash = (eps: Episode[]) => {
-    const hash = window.location.hash || '';
-    const m = /ep=([^&]+)/.exec(hash.replace('#', ''));
-    if (m) {
-      const epId = decodeURIComponent(m[1]);
-      const found = eps.find((e) => e.episode_number === epId) || eps.find((e) => e.label === epId);
-      if (found) return found;
-    }
-    return eps[0] || null;
-  };
+  useEffect(() => {
+      getMe().then(user => {
+          if (user) {
+              setCommentName(user.first_name || user.username || 'User');
+              setIsLoggedIn(true);
+          }
+      }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -43,7 +43,16 @@ export const Watch = () => {
         const res = await getAnime(id);
         setAnime(res.anime);
         setEpisodes(res.episodes || []);
-        const activeEp = selectEpisodeFromHash(res.episodes || []);
+
+        let activeEp = null;
+        if (episode) {
+            activeEp = res.episodes.find(e => e.episode_number === episode);
+        }
+
+        if (!activeEp) {
+            activeEp = res.episodes[0] || null;
+        }
+
         setCurrentEp(activeEp);
         if (res.anime) addToHistory({ mal_id: parseInt(id), title: res.anime.title, image_url: res.anime.image_url || '' });
       } catch (e: any) {
@@ -54,6 +63,13 @@ export const Watch = () => {
     };
     load();
   }, [id]);
+
+  useEffect(() => {
+      if (episodes.length > 0 && episode) {
+          const found = episodes.find(e => e.episode_number === episode);
+          if (found) setCurrentEp(found);
+      }
+  }, [episode, episodes]);
 
   const loadComments = async (offset = 0) => {
     if (!id) return;
@@ -87,6 +103,8 @@ export const Watch = () => {
 
   const onTimeUpdate = (time: number) => {
     if (!id || !currentEp || !initData) return;
+    // We only update every 10 seconds for standard heartbeats,
+    // but the component will also call it on pause/unload.
     if (time > 0 && Math.floor(time) % 10 === 0) {
       updateProgress(id, currentEp.episode_number, time).catch(() => {});
     }
@@ -97,8 +115,9 @@ export const Watch = () => {
     try {
       const optimistic = { id: Date.now(), user_name: commentName, text: commentText.trim(), likes: 0, date: new Date().toISOString().slice(0,10).replace(/-/g, "/") };
       setComments((prev) => [optimistic as any, ...prev]);
+      const currentText = commentText.trim();
       setCommentText('');
-      await postComment(id, commentName, optimistic.text);
+      await postComment(id, commentName, currentText);
     } catch (e: any) {
       setError(e?.message || 'Failed to post comment');
     }
@@ -166,6 +185,7 @@ export const Watch = () => {
               <div className="relative group aspect-video rounded-[40px] overflow-hidden bg-black border border-white/10 shadow-2xl shadow-indigo-500/5">
                  {currentEp ? (
                     <VideoPlayer
+                      key={currentEp.url}
                       src={currentEp.url}
                       title={`${anime.title} - ${currentEp.label || `Ep ${currentEp.episode_number}`}`}
                       poster={anime.image_url || undefined}
@@ -196,7 +216,7 @@ export const Watch = () => {
                             <motion.button
                               layout
                               key={`${ep.episode_number}-${ep.quality || ''}`}
-                              onClick={() => setCurrentEp(ep)}
+                              onClick={() => navigate(`/watch/${id}/${ep.episode_number}`)}
                               className={`px-6 py-4 rounded-2xl font-black text-sm transition-all border ${
                                 active
                                   ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20 scale-105'
@@ -284,12 +304,14 @@ export const Watch = () => {
 
                  {/* Input Area */}
                  <div className="p-6 border-t border-white/10 bg-white/5 space-y-4">
-                    <input
-                       value={commentName}
-                       onChange={(e) => setCommentName(e.target.value)}
-                       placeholder="Your name..."
-                       className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-xs font-black outline-none focus:border-indigo-500/50 transition-all"
-                    />
+                    {!isLoggedIn && (
+                        <input
+                           value={commentName}
+                           onChange={(e) => setCommentName(e.target.value)}
+                           placeholder="Your name..."
+                           className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-xs font-black outline-none focus:border-indigo-500/50 transition-all"
+                        />
+                    )}
                     <div className="relative">
                        <textarea
                           value={commentText}

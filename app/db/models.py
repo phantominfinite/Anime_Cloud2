@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, DateTime, UniqueConstraint, Index, Float, Text, Boolean, Computed
+from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, DateTime, UniqueConstraint, Index, Float, Text, Boolean, Computed, JSON
 from sqlalchemy.dialects.postgresql import TSVECTOR, JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -52,10 +52,10 @@ class Anime(Base):
     image_url = Column(String, nullable=True)
     
     # Enhanced Metadata
-    genres = Column(JSONB, nullable=True)
+    genres = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     score = Column(Float, nullable=True)
     status = Column(String, nullable=True)
-    studios = Column(JSONB, nullable=True)
+    studios = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     type = Column(String, nullable=True)
     year = Column(Integer, nullable=True)
     season = Column(String, nullable=True)
@@ -68,7 +68,7 @@ class Anime(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # PostgreSQL Full-Text Search Vector
-    search_vector = Column(TSVECTOR)
+    search_vector = Column(TSVECTOR().with_variant(Text, "sqlite"))
 
     episodes = relationship("Episode", back_populates="anime", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="anime", cascade="all, delete-orphan")

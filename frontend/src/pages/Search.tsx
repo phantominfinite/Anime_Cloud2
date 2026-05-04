@@ -88,8 +88,15 @@ const Search: React.FC = () => {
                          className="relative group cursor-pointer animate-fade-in">
                         <div className="aspect-[2/3] rounded-2xl overflow-hidden mb-3 border border-white/5 relative">
                              <img src={anime.images.jpg.large_image_url} className="w-full h-full object-cover group-hover:scale-110 transition duration-500" loading="lazy"/>
-                             <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] font-bold text-white flex items-center gap-1">
-                                <Star size={10} className="text-yellow-400" fill="currentColor"/> {anime.score || '?'}
+                             <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+                                <div className="bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] font-bold text-white flex items-center gap-1">
+                                    <Star size={10} className="text-yellow-400" fill="currentColor"/> {anime.score || '?'}
+                                </div>
+                                {anime.is_available && (
+                                    <div className="bg-primary/80 backdrop-blur-md px-2 py-0.5 rounded-lg text-[8px] font-black text-white uppercase tracking-tighter">
+                                        Available
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <h3 className="text-sm font-bold text-white line-clamp-1 group-hover:text-primary transition">{anime.title}</h3>

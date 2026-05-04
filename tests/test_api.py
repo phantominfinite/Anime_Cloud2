@@ -59,7 +59,10 @@ class _FakeDB:
 @pytest.mark.asyncio
 async def test_user_library_and_continue_shapes():
     fake_user = SimpleNamespace(id=1, telegram_id=1, first_name='T', username='u', photo_url=None, is_admin=False)
-    entries = [SimpleNamespace(anime_mal_id='1', status='watching', is_favorite=False, score=None, progress_episode='2', progress_time=90)]
+    # Mock row data since it's a join: (UserAnime, Anime)
+    ua = SimpleNamespace(anime_mal_id='1', status='watching', is_favorite=False, score=None, progress_episode='2', progress_time=90, last_watched_at=__import__('datetime').datetime(2024,1,1))
+    anime = SimpleNamespace(title='Anime 1', image_url='http://img.png')
+    entries = [(ua, anime)]
 
     app.dependency_overrides[require_user] = lambda: fake_user
     app.dependency_overrides[get_db] = lambda: _FakeDB(entries)
@@ -70,6 +73,7 @@ async def test_user_library_and_continue_shapes():
         assert lib.status_code == 200
         assert 'items' in lib.json()
         assert lib.json()['items'][0]['progress_episode'] == '2'
+        assert lib.json()['items'][0]['title'] == 'Anime 1'
         assert cont.status_code == 200
         assert 'items' in cont.json()
     finally:
