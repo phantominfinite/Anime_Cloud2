@@ -71,6 +71,10 @@ async def websocket_endpoint(websocket: WebSocket, anime_mal_id: Optional[str] =
             # Keep alive
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
         await manager.disconnect(websocket, anime_mal_id)
 
 @router.get("/health", response_model=Dict[str, Any])

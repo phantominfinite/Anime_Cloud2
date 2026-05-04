@@ -48,14 +48,20 @@ export function VideoPlayer({ src, title, poster, onTimeUpdate }: VideoPlayerPro
       controls
       className="w-full aspect-video bg-black overflow-hidden rounded-2xl shadow-2xl"
       onTimeUpdate={(e: any) => {
-          const time = e.currentTime;
+          const time = e?.detail?.currentTime;
+          if (typeof time !== 'number' || Number.isNaN(time)) return;
           // Standard heartbeat every 10s is handled by the caller,
           // but we also want to ensure we save if they jump around.
           if (Math.floor(time) % 10 === 0) {
               saveProgress(time);
           }
       }}
-      onPause={(e: any) => saveProgress(e.currentTime)}
+      onPause={(e: any) => {
+          const time = e?.detail?.currentTime;
+          if (typeof time === 'number' && !Number.isNaN(time)) {
+              saveProgress(time);
+          }
+      }}
     >
       <MediaOutlet />
     </MediaPlayer>

@@ -72,13 +72,15 @@ class SmartDownloader:
             return future
 
     async def _download_worker(self, file_id: str, chunk_index: int, future: asyncio.Future):
-        async with self._semaphore:
-            max_retries = 5
-            retry_delay = 1
+        max_retries = 5
+        retry_delay = 1
 
-            try:
-                for attempt in range(max_retries):
-                    try:
+        try:
+            for attempt in range(max_retries):
+                should_sleep = False
+                sleep_for = 0
+                try:
+                    async with self._semaphore:
                         if await cache_service.exists(file_id, chunk_index):
                             if not future.done():
                                 future.set_result(True)
@@ -97,24 +99,29 @@ class SmartDownloader:
                         r = await client.invoke(GetFile(location=location, offset=offset, limit=self.chunk_size))
                         await cache_service.save_chunk(file_id, chunk_index, r.bytes)
 
-                        if not future.done():
-                            future.set_result(True)
-                        return
-                    except FloodWait as e:
-                        wait_for = min(int(e.value), 30)
-                        logger.warning(f"FloodWait on client: {e.value}s. Retrying in {wait_for}s.")
-                        await asyncio.sleep(wait_for)
-                    except Exception as e:
-                        logger.error(f"Attempt {attempt + 1} failed for {file_id}/{chunk_index}: {e}")
-                        await asyncio.sleep(retry_delay * (2 ** attempt))
+                    if not future.done():
+                        future.set_result(True)
+                    return
+                except FloodWait as e:
+                    wait_for = min(int(e.value), 30)
+                    logger.warning(f"FloodWait on client: {e.value}s. Retrying in {wait_for}s.")
+                    should_sleep = True
+                    sleep_for = wait_for
+                except Exception as e:
+                    logger.error(f"Attempt {attempt + 1} failed for {file_id}/{chunk_index}: {e}")
+                    should_sleep = True
+                    sleep_for = retry_delay * (2 ** attempt)
 
-                if not future.done():
-                    future.set_exception(Exception("Max retries exceeded"))
-            finally:
-                async with self._lock:
-                    key = (file_id, chunk_index)
-                    if key in self.pending_chunks and self.pending_chunks[key] is future:
-                        del self.pending_chunks[key]
+                if should_sleep:
+                    await asyncio.sleep(sleep_for)
+
+            if not future.done():
+                future.set_exception(Exception("Max retries exceeded"))
+        finally:
+            async with self._lock:
+                key = (file_id, chunk_index)
+                if key in self.pending_chunks and self.pending_chunks[key] is future:
+                    del self.pending_chunks[key]
 
 downloader = None 
 

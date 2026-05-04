@@ -3,7 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, ListVideo, Heart, Share2, Info, ChevronLeft, Send, ThumbsUp } from 'lucide-react';
 
-import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData, type Episode, type Comment, type AnimeLite, getMe } from '../services/api';
+import axios from 'axios';
+import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData, type Episode, type Comment, type AnimeLite, getMe, jikanApi } from '../services/api';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { useAppStore } from '../store/useAppStore';
 
@@ -56,6 +57,32 @@ export const Watch = () => {
         setCurrentEp(activeEp);
         if (res.anime) addToHistory({ mal_id: parseInt(id), title: res.anime.title, image_url: res.anime.image_url || '' });
       } catch (e: any) {
+        const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+        if (status === 404 && id) {
+          try {
+            const jikanRes = await jikanApi.get<{ data: any }>(`/anime/${id}`);
+            const data = jikanRes.data?.data;
+            if (data) {
+              setAnime({
+                mal_id: String(data.mal_id),
+                title: data.title || 'Unknown Title',
+                image_url: data.images?.jpg?.large_image_url || data.images?.jpg?.image_url || null,
+                score: data.score ?? null,
+                type: data.type ?? null,
+                year: data.year ?? null,
+                description: data.synopsis ?? null,
+                status: data.status ?? null,
+                is_available: false,
+              });
+              setEpisodes([]);
+              setCurrentEp(null);
+              setError('No video files have been uploaded for this anime yet');
+              return;
+            }
+          } catch {
+            // Fall through to generic error handling below.
+          }
+        }
         setError(e?.message || 'Failed to load anime');
       } finally {
         setLoading(false);
@@ -139,7 +166,7 @@ export const Watch = () => {
     </div>
   );
 
-  if (error || !anime) return (
+  if (!anime) return (
     <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-8 text-center">
       <h2 className="text-3xl font-black text-red-500 mb-4">Content Unavailable</h2>
       <p className="text-white/60 mb-8 max-w-md">{error || "The anime you are looking for doesn't exist."}</p>
@@ -159,6 +186,12 @@ export const Watch = () => {
       </div>
 
       <div className="relative z-10 max-w-[1800px] mx-auto px-6 pt-12">
+        {error && (
+          <div className="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm font-semibold text-amber-200">
+            {error}
+          </div>
+        )}
+
         {/* Top Bar */}
         <div className="flex items-center justify-between mb-8">
            <Link to="/" className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-2 group">
