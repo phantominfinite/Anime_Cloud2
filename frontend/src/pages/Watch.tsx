@@ -22,6 +22,8 @@ export const Watch = () => {
   const [commentName, setCommentName] = useState('Anonymous');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [watchingCount, setWatchingCount] = useState(1);
+  const [startTime, setStartTime] = useState(0);
+  const [containsSpoilers, setContainsSpoilers] = useState(false);
 
   const { toggleFavorite, isFavorite, addToHistory } = useAppStore();
   const initData = useMemo(() => getTelegramInitData(), []);
@@ -55,6 +57,7 @@ export const Watch = () => {
         }
 
         setCurrentEp(activeEp);
+        setStartTime(0);
         if (res.anime) addToHistory({ mal_id: parseInt(id), title: res.anime.title, image_url: res.anime.image_url || '' });
       } catch (e: any) {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
@@ -144,7 +147,8 @@ export const Watch = () => {
       setComments((prev) => [optimistic as any, ...prev]);
       const currentText = commentText.trim();
       setCommentText('');
-      await postComment(id, commentName, currentText);
+      await postComment(id, commentName, containsSpoilers ? `[SPOILER] ${currentText}` : currentText);
+      setContainsSpoilers(false);
     } catch (e: any) {
       setError(e?.message || 'Failed to post comment');
     }
@@ -219,6 +223,7 @@ export const Watch = () => {
                  {currentEp ? (
                     <VideoPlayer
                       key={currentEp.url}
+                      startTime={startTime}
                       src={currentEp.url}
                       title={`${anime.title} - ${currentEp.label || `Ep ${currentEp.episode_number}`}`}
                       poster={anime.image_url || undefined}
@@ -352,6 +357,7 @@ export const Watch = () => {
                           placeholder="Type something amazing..."
                           className="w-full bg-white/5 border border-white/5 rounded-2xl px-5 py-4 text-sm font-medium outline-none focus:border-indigo-500/50 transition-all min-h-[120px] resize-none"
                        />
+                       <label className="flex items-center gap-2 text-xs text-white/70"><input type="checkbox" checked={containsSpoilers} onChange={(e)=>setContainsSpoilers(e.target.checked)} />Contains Spoilers</label>
                        <button
                           onClick={submitComment}
                           disabled={!commentText.trim()}

@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import AsyncGenerator, Dict, Any
+from typing import AsyncGenerator, Dict, Any, List
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, InlineQuery, InlineQueryResultArticle, InputTextMessageContent, CallbackQuery
 from pyrogram.errors import RPCError
@@ -27,6 +27,8 @@ class TelegramService:
         self.api_hash = settings.API_HASH
         self.bot_token = settings.BOT_TOKEN
         self.client = None
+        self.workers: List[Client] = []
+        self._worker_session_strings = [s.strip() for s in str(getattr(settings, "WORKER_SESSION_STRINGS", "")).split(",") if s.strip()]
         self.chunk_size = int(getattr(settings, "STREAM_CHUNK_SIZE", 1024 * 1024))  # bytes
         if hasattr(settings, "ADMIN_IDS") and settings.ADMIN_IDS:
              self.admin_ids = [int(x) for x in settings.ADMIN_IDS.split(",") if x.strip().isdigit()]
@@ -45,11 +47,19 @@ class TelegramService:
                 in_memory=True
             )
             
-            # Additional worker clients for session rotation / CDN bottleneck
+            # Session-rotated worker pool for CDN reads to reduce FloodWait pressure.
             self.workers = [self.client]
-            # In a real enterprise setup, we would load more session strings from env
-            # For now we use the main client twice to demonstrate the rotation logic
-            # but usually it would be [Client("w1"), Client("w2"), ...]
+            for idx, session_string in enumerate(self._worker_session_strings, start=1):
+                worker = Client(
+                    name=f"worker_session_{idx}",
+                    api_id=self.api_id,
+                    api_hash=self.api_hash,
+                    session_string=session_string,
+                    in_memory=True,
+                )
+                await worker.start()
+                self.workers.append(worker)
+            logger.info("Initialized %s Telegram worker client(s)", len(self.workers))
 
             self.client.add_handler(MessageHandler(self.handle_start, filters.command("start")))
             self.client.add_handler(MessageHandler(self.handle_search_cmd, filters.command("search")))
@@ -64,8 +74,14 @@ class TelegramService:
 
     async def stop(self):
         if self.client:
-            await self.client.stop()
-            logger.info("Telegram Client Stopped")
+            for worker in reversed(self.workers):
+                try:
+                    await worker.stop()
+                except Exception:
+                    pass
+            self.workers = []
+            self.client = None
+            logger.info("Telegram Client(s) Stopped")
 
     # ... (Keep existing stream_file method)
     async def stream_file(self, file_id: str, offset: int = 0, limit: int = 0) -> AsyncGenerator[bytes, None]:

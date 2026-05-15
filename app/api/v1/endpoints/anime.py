@@ -393,51 +393,35 @@ async def stream_video(
         return JSONResponse(status_code=304, content=None, headers={"ETag": etag})
 
     def parse_single_range(rh: str, size: int) -> tuple[int, int]:
-        rh = (rh or "").strip().lower()
-        if not rh:
-            return (0, size - 1)
-        if not rh.startswith("bytes="):
-            raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-        spec = rh[len("bytes="):].strip()
-        if "," in spec:
-            # We don't support multipart ranges (most video players don't need them).
-            raise HTTPException(status_code=416, detail="Multiple ranges not supported", headers={"Content-Range": f"bytes */{size}"})
-        if "-" not in spec:
-            raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-        start_s, end_s = spec.split("-", 1)
-
-        if start_s == "" and end_s == "":
-            raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-
-        if start_s == "":
-            # suffix: last N bytes
-            try:
-                suffix = int(end_s)
-            except Exception:
-                raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-            if suffix <= 0:
-                raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-            start = max(0, size - suffix)
-            end = size - 1
-            return (start, end)
-
+        """Parse a single bytes range; defaults safely to full content on malformed input."""
         try:
+            raw = (rh or "").strip().lower()
+            if not raw:
+                return (0, size - 1)
+            if not raw.startswith("bytes="):
+                logger.warning("Invalid range unit: %s", rh)
+                return (0, size - 1)
+            spec = raw[len("bytes="):].strip()
+            if not spec or "," in spec or "-" not in spec:
+                logger.warning("Unsupported range header shape: %s", rh)
+                return (0, size - 1)
+
+            start_s, end_s = spec.split("-", 1)
+            if start_s == "":
+                suffix = int(end_s)
+                if suffix <= 0:
+                    return (0, size - 1)
+                start = max(0, size - suffix)
+                return (start, size - 1)
+
             start = int(start_s)
+            end = size - 1 if end_s == "" else int(end_s)
+            if start < 0 or end < 0 or start >= size or start > end:
+                return (0, size - 1)
+            return (start, min(end, size - 1))
         except Exception:
-            raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-
-        if end_s == "":
-            end = size - 1
-        else:
-            try:
-                end = int(end_s)
-            except Exception:
-                raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-
-        if start < 0 or end < 0 or start > end or start >= size:
-            raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
-        end = min(end, size - 1)
-        return (start, end)
+            logger.warning("Failed to parse range header, falling back to full stream: %s", rh)
+            return (0, size - 1)
 
     start, end = (0, file_size - 1)
     status_code = 200
@@ -464,15 +448,19 @@ async def stream_video(
         return JSONResponse(status_code=status_code, content=None, headers=headers)
 
     async def iterfile():
+        stream = telegram_service.stream_file(file_id, offset=start, limit=content_length)
         try:
-            async for chunk in telegram_service.stream_file(file_id, offset=start, limit=content_length):
+            async for chunk in stream:
                 yield chunk
-        except HTTPException:
-            raise
         except Exception as e:
             logger.error(f"Streaming error: {e}", exc_info=True)
-            # This will typically close the connection; status can't be changed mid-stream.
             raise
+        finally:
+            # Ensure async generator resources are released on client disconnects.
+            try:
+                await stream.aclose()
+            except Exception:
+                pass
 
     return StreamingResponse(iterfile(), status_code=status_code, media_type=content_type, headers=headers)
 
