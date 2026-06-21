@@ -13,7 +13,10 @@ const Search: React.FC = () => {
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
-      if (query.length < 3) return;
+      if (query.length < 3) {
+          setResults([]);
+          return;
+      }
       setLoading(true);
       try {
         const data = await searchAnime(query, filters);

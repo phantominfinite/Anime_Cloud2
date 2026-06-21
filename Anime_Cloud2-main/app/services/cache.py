@@ -68,23 +68,24 @@ class CacheService:
         digest = hashlib.sha1(f"{op}:{path}".encode()).hexdigest()
         return RedisDistributedLock(self._redis, f"lock:cache:{digest}", timeout=timeout)
 
-    def _get_chunk_path(self, file_id: str, chunk_index: int) -> str:
+    async def _get_chunk_path(self, file_id: str, chunk_index: int) -> str:
         safe_file_id = hashlib.md5(file_id.encode()).hexdigest()
         file_dir = os.path.join(self.cache_dir, safe_file_id)
-        os.makedirs(file_dir, exist_ok=True)
+        await asyncio.to_thread(os.makedirs, file_dir, exist_ok=True)
         return os.path.join(file_dir, str(chunk_index))
 
     async def exists(self, file_id: str, chunk_index: int) -> bool:
-        return os.path.exists(self._get_chunk_path(file_id, chunk_index))
+        path = await self._get_chunk_path(file_id, chunk_index)
+        return await asyncio.to_thread(os.path.exists, path)
 
     async def get_chunk(self, file_id: str, chunk_index: int) -> bytes | None:
-        path = self._get_chunk_path(file_id, chunk_index)
-        if not os.path.exists(path):
+        path = await self._get_chunk_path(file_id, chunk_index)
+        if not await asyncio.to_thread(os.path.exists, path):
             return None
 
         try:
             async with self._lock_for_path(path, "read", timeout=10):
-                if not os.path.exists(path):
+                if not await asyncio.to_thread(os.path.exists, path):
                     return None
                 asyncio.create_task(redis_service.update_access(path))
                 async with aiofiles.open(path, mode="rb") as f:
@@ -94,13 +95,13 @@ class CacheService:
             return None
 
     async def save_chunk(self, file_id: str, chunk_index: int, data: bytes):
-        path = self._get_chunk_path(file_id, chunk_index)
+        path = await self._get_chunk_path(file_id, chunk_index)
         temp_path = f"{path}.tmp"
         try:
             async with self._lock_for_path(path, "write", timeout=20):
                 async with aiofiles.open(temp_path, mode="wb") as f:
                     await f.write(data)
-                os.replace(temp_path, path)
+                await asyncio.to_thread(os.replace, temp_path, path)
                 asyncio.create_task(redis_service.update_access(path))
 
                 now = time.monotonic()
@@ -110,8 +111,8 @@ class CacheService:
         except Exception as e:
             logger.error("Error writing cache for %s/%s: %s", file_id, chunk_index, e)
             with contextlib.suppress(Exception):
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                if await asyncio.to_thread(os.path.exists, temp_path):
+                    await asyncio.to_thread(os.remove, temp_path)
 
     async def _check_cache_size(self):
         if self._evict_local_lock.locked():
@@ -130,13 +131,13 @@ class CacheService:
                     if not candidates:
                         break
                     for fp in candidates:
-                        if not os.path.exists(fp):
+                        if not await asyncio.to_thread(os.path.exists, fp):
                             continue
                         try:
                             async with self._lock_for_path(fp, "write", timeout=8):
-                                if os.path.exists(fp):
-                                    size = os.path.getsize(fp)
-                                    os.remove(fp)
+                                if await asyncio.to_thread(os.path.exists, fp):
+                                    size = await asyncio.to_thread(os.path.getsize, fp)
+                                    await asyncio.to_thread(os.remove, fp)
                                     total_size -= size
                                     if total_size <= max_size:
                                         break
@@ -158,8 +159,8 @@ class CacheService:
 
     async def clear_cache(self):
         with contextlib.suppress(Exception):
-            shutil.rmtree(self.cache_dir)
-        os.makedirs(self.cache_dir, exist_ok=True)
+            await asyncio.to_thread(shutil.rmtree, self.cache_dir)
+        await asyncio.to_thread(os.makedirs, self.cache_dir, exist_ok=True)
 
 
 cache_service = CacheService()

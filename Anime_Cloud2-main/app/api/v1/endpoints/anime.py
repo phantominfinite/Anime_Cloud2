@@ -268,10 +268,20 @@ async def post_comment(
     db: AsyncSession = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
+    if user:
+        user_name = user.first_name or user.username or "User"
+    else:
+        # Prepend to distinguish unauthenticated users
+        import random
+        # Just generate a small random hash or use anon
+        rand_hash = f"{random.randint(1000, 9999)}"
+        clean_name = comment_in.user_name.replace("Admin", "").strip() or "Guest"
+        user_name = f"[Guest] {clean_name}-{rand_hash}"
+
     comment = Comment(
         anime_mal_id=mal_id,
         user_id=user.id if user else None,
-        user_name=(user.first_name or user.username) if user else comment_in.user_name,
+        user_name=user_name,
         text=comment_in.text,
         likes=0
     )
@@ -320,6 +330,8 @@ async def search(
     min_rating: Optional[float] = Query(None, ge=0, le=10),
     year: Optional[int] = Query(None, ge=1960, le=2100),
     season: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> List[AnimeOut]:
     """
@@ -327,7 +339,7 @@ async def search(
     Returns a list of AnimeOut objects.
     """
     animes = await search_service.search_anime(
-        db, q, limit=limit, offset=offset, min_rating=min_rating, year=year, season=season
+        db, q, limit=limit, offset=offset, min_rating=min_rating, year=year, season=season, status=status, type=type
     )
 
     return [

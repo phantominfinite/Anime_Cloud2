@@ -23,6 +23,9 @@ class ConnectionManager:
             logger.warning("WebSocket scaling disabled: using MockRedis (no Pub/Sub)")
             return
 
+        # Start background sync task on first connect
+        asyncio.create_task(self._sync_instance_count_loop())
+
         async def listen():
             while True:
                 pubsub = None
@@ -118,13 +121,63 @@ class ConnectionManager:
         }))
 
     async def broadcast_user_count(self):
-        # This is tricky across instances without a global counter
-        # For simplicity, we just use local count or a redis counter
         if not redis_service.is_mock:
-            count = len(self.local_connections)
-            # In a real app we'd aggregate counts from all nodes in Redis
-            await self.broadcast({"type": "online_count", "count": count})
+            # Broadcast the sum from redis if handled by background task.
+            # But the requirement says "broadcast the true aggregated total".
+            # The background task will update and read. We'll broadcast manually here for immediate local feedback,
+            # but the actual aggregated count might be better pulled from redis.
+            # We'll just fetch the aggregated total if available.
+            try:
+                counts = await redis_service.client.hgetall("ws_instance_counts")
+                total = 0
+                if counts:
+                    import time
+                    now = time.time()
+                    for inst_id, val in counts.items():
+                        try:
+                            c, ts = val.split(":")
+                            if now - float(ts) <= 30:
+                                total += int(c)
+                        except ValueError:
+                            pass
+                else:
+                    total = len(self.local_connections)
+            except Exception:
+                total = len(self.local_connections)
+            await self.broadcast({"type": "online_count", "count": total})
         else:
             await self._send_to_all_local({"type": "online_count", "count": len(self.local_connections)})
+
+    async def _sync_instance_count_loop(self):
+        if redis_service.is_mock:
+            return
+        import uuid
+        instance_id = str(uuid.uuid4())
+        while True:
+            try:
+                count = len(self.local_connections)
+                # Storing timestamp alongside the count to allow for manual cleanup of stale workers
+                import time
+                timestamped_val = f"{count}:{time.time()}"
+                await redis_service.client.hset("ws_instance_counts", instance_id, timestamped_val)
+
+                # Fetch and broadcast the real total
+                counts = await redis_service.client.hgetall("ws_instance_counts")
+                total = 0
+                now = time.time()
+                for inst_id, val in counts.items():
+                    try:
+                        c, ts = val.split(":")
+                        if now - float(ts) > 30:
+                            # Cleanup stale instances
+                            await redis_service.client.hdel("ws_instance_counts", inst_id)
+                        else:
+                            total += int(c)
+                    except ValueError:
+                        pass
+                await self.broadcast({"type": "online_count", "count": total})
+            except Exception as e:
+                logger.error(f"Error syncing instance count: {e}")
+            await asyncio.sleep(10)
 
 manager = ConnectionManager()

@@ -311,11 +311,13 @@ class TelegramService:
                 anime_mal_id=mal_id,
                 episode_number=episode_number,
                 label=f"Episode {episode_number}",
-                quality="HD", # Default for now
+                quality=data.get("quality", "HD"),
                 file_id=data["file_id"],
                 file_unique_id=data["file_unique_id"],
                 file_size=data["file_size"],
-                mime_type=data.get("mime_type", "video/mp4")
+                mime_type=data.get("mime_type", "video/mp4"),
+                chat_id=message.chat.id,
+                message_id=message.id
             )
             session.add(episode)
             await session.commit()

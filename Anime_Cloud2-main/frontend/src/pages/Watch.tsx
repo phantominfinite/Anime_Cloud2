@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, ListVideo, Heart, Share2, Info, ChevronLeft, Send, ThumbsUp } from 'lucide-react';
@@ -27,6 +27,7 @@ export const Watch = () => {
 
   const { toggleFavorite, isFavorite, addToHistory } = useAppStore();
   const initData = useMemo(() => getTelegramInitData(), []);
+  const lastSavedTimeRef = useRef(-1);
 
   useEffect(() => {
       getMe().then(user => {
@@ -133,9 +134,9 @@ export const Watch = () => {
 
   const onTimeUpdate = (time: number) => {
     if (!id || !currentEp || !initData) return;
-    // We only update every 10 seconds for standard heartbeats,
-    // but the component will also call it on pause/unload.
-    if (time > 0 && Math.floor(time) % 10 === 0) {
+    const currentFloor = Math.floor(time);
+    if (currentFloor > 0 && currentFloor % 10 === 0 && currentFloor !== lastSavedTimeRef.current) {
+      lastSavedTimeRef.current = currentFloor;
       updateProgress(id, currentEp.episode_number, time).catch(() => {});
     }
   };
@@ -355,16 +356,21 @@ export const Watch = () => {
                           value={commentText}
                           onChange={(e) => setCommentText(e.target.value)}
                           placeholder="Type something amazing..."
-                          className="w-full bg-white/5 border border-white/5 rounded-2xl px-5 py-4 text-sm font-medium outline-none focus:border-indigo-500/50 transition-all min-h-[120px] resize-none"
+                          className="w-full bg-white/5 border border-white/5 rounded-2xl px-5 py-4 text-sm font-medium outline-none focus:border-indigo-500/50 transition-all min-h-[120px] resize-none mb-2"
                        />
-                       <label className="flex items-center gap-2 text-xs text-white/70"><input type="checkbox" checked={containsSpoilers} onChange={(e)=>setContainsSpoilers(e.target.checked)} />Contains Spoilers</label>
-                       <button
-                          onClick={submitComment}
-                          disabled={!commentText.trim()}
-                          className="absolute bottom-4 right-4 p-3 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-all disabled:opacity-50 disabled:grayscale group"
-                       >
-                          <Send className="w-5 h-5 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                       </button>
+                       <div className="flex items-center justify-between mt-2">
+                           <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+                               <input type="checkbox" checked={containsSpoilers} onChange={(e)=>setContainsSpoilers(e.target.checked)} className="accent-indigo-500 w-4 h-4 cursor-pointer" />
+                               Contains Spoilers
+                           </label>
+                           <button
+                              onClick={submitComment}
+                              disabled={!commentText.trim()}
+                              className="p-3 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-all disabled:opacity-50 disabled:grayscale group"
+                           >
+                              <Send className="w-5 h-5 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                           </button>
+                       </div>
                     </div>
                  </div>
               </div>
