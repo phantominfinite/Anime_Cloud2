@@ -1,0 +1,180 @@
+from fastapi import APIRouter, Depends, Body
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import Dict, Any, Optional
+
+from app.db.session import get_db
+from app.db.models import User, UserAnime, Anime
+from app.services.auth import require_user
+from pydantic import BaseModel
+
+router = APIRouter()
+
+class UserAnimeOut(BaseModel):
+    anime_mal_id: str
+    status: Optional[str] = None
+    is_favorite: bool = False
+    score: Optional[int] = None
+    progress_episode: Optional[str] = None
+    progress_time: Optional[int] = None
+    last_watched_at: Optional[str] = None
+    # Added metadata to avoid waterfalls
+    title: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class UserAnimeUpdate(BaseModel):
+    # All fields are optional so the frontend can PATCH-like update.
+    status: Optional[str] = None  # plan_to_watch, watching, completed, dropped
+    is_favorite: Optional[bool] = None
+    score: Optional[int] = None
+    progress_episode: Optional[str] = None
+    progress_time: Optional[int] = None  # seconds
+
+
+@router.get("/user/me")
+async def me(user: User = Depends(require_user)):
+    return {
+        "ok": True,
+        "user": {
+            "id": user.id,
+            "telegram_id": user.telegram_id,
+            "first_name": user.first_name,
+            "username": user.username,
+            "photo_url": user.photo_url,
+            "is_admin": user.is_admin,
+        },
+    }
+
+
+@router.get("/user/library")
+async def get_library(user: User = Depends(require_user), db: AsyncSession = Depends(get_db)):
+    """
+    Returns user's library (favorites, history).
+    """
+    stmt = (
+        select(UserAnime, Anime)
+        .join(Anime, UserAnime.anime_mal_id == Anime.mal_id)
+        .filter(UserAnime.user_id == user.id)
+    )
+    result = await db.execute(stmt)
+    items = result.all()
+
+    return {
+        "ok": True,
+        "items": [
+            UserAnimeOut(
+                anime_mal_id=ua.anime_mal_id,
+                status=ua.status,
+                is_favorite=ua.is_favorite,
+                score=ua.score,
+                progress_episode=ua.progress_episode,
+                progress_time=ua.progress_time,
+                last_watched_at=ua.last_watched_at.isoformat() if ua.last_watched_at else None,
+                title=anime.title,
+                image_url=anime.image_url,
+            )
+            for ua, anime in items
+        ],
+    }
+
+@router.post("/user/library/{mal_id}")
+async def update_library(
+    mal_id: str, 
+    data: UserAnimeUpdate, 
+    user: User = Depends(require_user), 
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Updates or creates a library entry.
+    """
+    result = await db.execute(
+        select(UserAnime).filter(UserAnime.user_id == user.id, UserAnime.anime_mal_id == mal_id)
+    )
+    entry = result.scalars().first()
+    
+    if not entry:
+        entry = UserAnime(
+            user_id=user.id,
+            anime_mal_id=mal_id,
+            status=data.status or "plan_to_watch",
+            is_favorite=bool(data.is_favorite),
+            score=data.score,
+            progress_episode=data.progress_episode
+        )
+        db.add(entry)
+    else:
+        if data.status is not None:
+            entry.status = data.status
+        if data.is_favorite is not None:
+            entry.is_favorite = data.is_favorite
+        if data.score is not None:
+            entry.score = data.score
+        if data.progress_episode is not None:
+            entry.progress_episode = data.progress_episode
+        if data.progress_time is not None and hasattr(entry, "progress_time"):
+            entry.progress_time = data.progress_time
+            
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/user/progress/{mal_id}/{episode}")
+async def update_progress(
+    mal_id: str,
+    episode: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Store continue-watching progress (episode + optional time)."""
+    result = await db.execute(
+        select(UserAnime).filter(UserAnime.user_id == user.id, UserAnime.anime_mal_id == mal_id)
+    )
+    entry = result.scalars().first()
+    if not entry:
+        entry = UserAnime(user_id=user.id, anime_mal_id=mal_id, status="watching", is_favorite=False)
+        db.add(entry)
+
+    entry.status = entry.status or "watching"
+    entry.progress_episode = episode
+    # progress_time column may not exist on older DBs; ignore if missing.
+    if "progress_time" in payload and hasattr(entry, "progress_time"):
+        try:
+            entry.progress_time = int(payload["progress_time"])
+        except Exception:
+            pass
+
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/user/continue")
+async def continue_watching(user: User = Depends(require_user), db: AsyncSession = Depends(get_db)):
+    """Return items where the user has progress_episode set."""
+    stmt = (
+        select(UserAnime, Anime)
+        .join(Anime, UserAnime.anime_mal_id == Anime.mal_id)
+        .filter(UserAnime.user_id == user.id)
+        .filter(UserAnime.progress_episode.isnot(None))
+        .order_by(UserAnime.last_watched_at.desc())
+    )
+    result = await db.execute(stmt)
+    items = result.all()
+    return {
+        "ok": True,
+        "items": [
+            UserAnimeOut(
+                anime_mal_id=ua.anime_mal_id,
+                status=ua.status,
+                is_favorite=ua.is_favorite,
+                score=ua.score,
+                progress_episode=ua.progress_episode,
+                progress_time=ua.progress_time,
+                last_watched_at=ua.last_watched_at.isoformat() if ua.last_watched_at else None,
+                title=anime.title,
+                image_url=anime.image_url,
+            )
+            for ua, anime in items
+        ],
+    }
