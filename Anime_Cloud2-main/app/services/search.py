@@ -16,6 +16,8 @@ class SearchService:
         min_rating: Optional[float] = None,
         year: Optional[int] = None,
         season: Optional[str] = None,
+        status: Optional[str] = None,
+        type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         filters = []
         if min_rating is not None:
@@ -24,6 +26,13 @@ class SearchService:
             filters.append(Anime.year == year)
         if season:
             filters.append(Anime.genres.contains([{"name": season}]))
+        if status is not None:
+            # e.g., 'Currently Airing' vs 'Finished Airing'
+            # Assuming simple match or ILIKE for flexibility since jikan has specific strings
+            # If the backend is running sqlite ilike works, if postgres we use ilike as well
+            filters.append(Anime.status.ilike(f"%{status}%"))
+        if type is not None:
+            filters.append(Anime.type.ilike(f"%{type}%"))
 
         if db.bind.dialect.name == "postgresql":
             q = (

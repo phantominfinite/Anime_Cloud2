@@ -100,7 +100,7 @@ async def get_current_user(
             await db.refresh(user)
         else:
             # Update info if changed
-            if user.first_name != user_data.get("first_name") or user.photo_url != user_data.get("photo_url"):
+            if user.first_name != user_data.get("first_name") or user.photo_url != user_data.get("photo_url") or user.username != user_data.get("username"):
                 user.first_name = user_data.get("first_name")
                 user.photo_url = user_data.get("photo_url")
                 user.username = user_data.get("username")

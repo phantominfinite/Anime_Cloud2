@@ -110,6 +110,29 @@ class SmartDownloader:
                             )
                             r = await client.invoke(GetFile(location=location, offset=offset, limit=self.chunk_size))
                             await cache_service.save_chunk(file_id, chunk_index, r.bytes)
+                        except Exception as e:
+                            # If FILEREF_EXPIRED or similar MTProto error occurs, catch it
+                            if "FILE_REFERENCE_" in str(e) or "FILEREF_EXPIRED" in str(e):
+                                logger.warning(f"File reference expired for {file_id}, attempting to refresh...")
+                                # Attempt refresh using the first client and database info
+                                refreshed = await self._refresh_file_reference(file_id)
+                                if refreshed:
+                                    logger.info(f"File reference refreshed for {file_id}, retrying chunk download...")
+                                    # Update file_id in this scope and retry the exact chunk
+                                    file_id = refreshed
+                                    # Re-decode location with new file_id
+                                    decoded = FileId.decode(file_id)
+                                    location = decoded.file_type.location(
+                                        id=decoded.media_id,
+                                        access_hash=decoded.access_hash,
+                                        file_reference=decoded.file_reference,
+                                    )
+                                    r = await client.invoke(GetFile(location=location, offset=offset, limit=self.chunk_size))
+                                    await cache_service.save_chunk(file_id, chunk_index, r.bytes)
+                                else:
+                                    raise e
+                            else:
+                                raise e
                         finally:
                             if not use_fallback:
                                 try:
@@ -135,6 +158,38 @@ class SmartDownloader:
             async with self._lock:
                 self.pending_chunks.pop((file_id, chunk_index), None)
 
+    async def _refresh_file_reference(self, file_id: str) -> Optional[str]:
+        # Need to import inside to avoid circular import if necessary, or just use db directly.
+        from app.db.session import async_session_factory
+        from app.db.models import Episode
+        from sqlalchemy import select
+
+        async with async_session_factory() as db:
+            result = await db.execute(select(Episode).filter(Episode.file_id == file_id))
+            episode = result.scalars().first()
+            if not episode or not episode.chat_id or not episode.message_id:
+                return None
+
+            try:
+                # Use the main client (bot or user) that has access to the chat to fetch the message
+                client = self.clients[0]
+                message = await client.get_messages(episode.chat_id, episode.message_id)
+                if not message:
+                    return None
+
+                file = message.video or message.document
+                if not file:
+                    return None
+
+                new_file_id = file.file_id
+
+                # Update database with new file_id
+                episode.file_id = new_file_id
+                await db.commit()
+                return new_file_id
+            except Exception as e:
+                logger.error(f"Failed to refresh file reference for {file_id}: {e}")
+                return None
 
 downloader = None
 

@@ -56,16 +56,22 @@ async def get_system_info() -> dict:
     """Basic runtime info (safe to expose)."""
     uptime_s = int(time.time() - STARTED_AT)
     # Cache directory size (best-effort)
-    cache_bytes = 0
-    try:
-        for root, _, files in os.walk(settings.CACHE_DIR):
-            for f in files:
-                try:
-                    cache_bytes += os.path.getsize(os.path.join(root, f))
-                except Exception:
-                    pass
-    except Exception:
-        cache_bytes = -1
+    import asyncio
+
+    def get_cache_size():
+        total = 0
+        try:
+            for root, _, files in os.walk(settings.CACHE_DIR):
+                for f in files:
+                    try:
+                        total += os.path.getsize(os.path.join(root, f))
+                    except Exception:
+                        pass
+            return total
+        except Exception:
+            return -1
+
+    cache_bytes = await asyncio.to_thread(get_cache_size)
 
     return {
         "ok": True,

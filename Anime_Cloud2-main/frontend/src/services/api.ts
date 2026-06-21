@@ -225,7 +225,9 @@ export const searchAnime = async (query: string, filters?: { status?: string, ty
             limit,
             min_rating: filters?.min_rating,
             year: filters?.year,
-            season: filters?.season
+            season: filters?.season,
+            status: filters?.status,
+            type: filters?.type
         }
     });
 
