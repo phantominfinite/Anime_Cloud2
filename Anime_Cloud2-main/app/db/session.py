@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from app.core.config import settings
 
 # Adjust connect_args based on DB type
@@ -24,7 +24,8 @@ AsyncSessionLocal = async_sessionmaker(
 # Alias for compatibility with my code in telegram.py
 async_session_factory = AsyncSessionLocal
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 async def get_db():
     async with AsyncSessionLocal() as session:

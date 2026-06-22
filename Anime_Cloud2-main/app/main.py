@@ -27,10 +27,6 @@ async def lifespan(app: FastAPI):
     if settings.is_production and not settings.ADMIN_API_KEY:
         raise RuntimeError("ADMIN_API_KEY must be set when ENVIRONMENT=production")
 
-    logger.info("Initializing Database (Metadata check)...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     logger.info("Initializing Redis...")
     try:
         await redis_service.connect()
