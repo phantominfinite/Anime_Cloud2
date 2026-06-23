@@ -21,12 +21,32 @@ export const jikanApi = axios.create({
   timeout: 20000,
 });
 
-// Attach Telegram init data automatically when available
+// Helper to get local JWT token
+export const getLocalToken = (): string | null => {
+  return localStorage.getItem('jwt_token');
+};
+
+export const setLocalToken = (token: string) => {
+  localStorage.setItem('jwt_token', token);
+};
+
+export const clearLocalToken = () => {
+  localStorage.removeItem('jwt_token');
+};
+
+// Attach Telegram init data automatically when available or fallback to local JWT token
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  config.headers = config.headers || {};
+
   const initData = getTelegramInitData();
   if (initData) {
-    config.headers = config.headers || {};
     config.headers['X-Telegram-Init-Data'] = initData;
+  } else {
+    // Fallback to standard Bearer token auth if Telegram WebApp context is unavailable
+    const token = getLocalToken();
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
   }
   return config;
 });

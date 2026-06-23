@@ -36,14 +36,13 @@ async def run_migrations():
 async def main():
     logger.info("Initializing service")
     await init()
-    # We can run migrations here if we want, or in a separate step in CMD
-    # For simplicity in this setup where we use asyncpg, running alembic (sync) 
-    # requires a sync driver installed (psycopg2) or running it differently.
-    # Since we have libpq-dev and gcc, we can ensure psycopg2-binary is installed or similar.
-    
-    # However, app.main.lifespan currently does Base.metadata.create_all which is a basic migration strategy.
-    # For "Next Level", proper migrations are better.
-    # I'll check if we have psycopg2 in requirements.
+    # Run Alembic migrations programmatically
+    await asyncio.to_thread(run_migrations_sync)
+
+def run_migrations_sync():
+    logger.info("Running migrations")
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
 
 if __name__ == "__main__":
     asyncio.run(main())
