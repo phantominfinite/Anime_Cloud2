@@ -3,13 +3,13 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 // Telegram WebApp init data helper (for auth)
 export const getTelegramInitData = (): string => {
   try {
-    return (window as any)?.Telegram?.WebApp?.initData || '';
+    return (window as unknown as { Telegram?: { WebApp?: { initData?: string } } })?.Telegram?.WebApp?.initData || '';
   } catch {
     return '';
   }
 };
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || '/api';
+const API_BASE = (import.meta as unknown as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE || '/api';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -266,14 +266,14 @@ export const searchAnime = async (query: string, filters?: { status?: string, ty
     if (localResults.length >= limit) return localResults;
 
     // Fetch from Jikan to fill the rest
-    const jikanParams: Record<string, any> = { q: query, limit: limit - localResults.length };
+    const jikanParams: Record<string, string | number> = { q: query, limit: limit - localResults.length };
     if (filters?.status) jikanParams.status = filters.status;
     if (filters?.type) jikanParams.type = filters.type;
     if (filters?.min_rating) jikanParams.min_score = filters.min_rating;
     if (filters?.year) jikanParams.start_date = `${filters.year}-01-01`;
 
     try {
-        const jikanRes = await jikanApi.get<{ data: any[] }>('/anime', { params: jikanParams });
+        const jikanRes = await jikanApi.get<{ data: Array<{ mal_id: number; title: string; images: { jpg: { image_url: string; large_image_url: string } }; score?: number; type?: string; year?: number; synopsis?: string; }> }>('/anime', { params: jikanParams });
         const jikanResults: JikanAnime[] = jikanRes.data.data.map(a => ({
             mal_id: a.mal_id,
             title: a.title,

@@ -34,8 +34,9 @@ export function VideoPlayer({ src, title, poster, startTime = 0, sources = [], s
       onLoadedMetadata={() => {
         if (player.current && startTime > 0) player.current.currentTime = startTime;
       }}
-      onTimeUpdate={(e: any) => {
-        const t = e?.detail?.currentTime || 0;
+      onTimeUpdate={(e: unknown) => {
+        const detail = (e as { detail?: { currentTime?: number } }).detail;
+        const t = detail?.currentTime || 0;
         const duration = player.current?.duration || 0;
         onTimeUpdate?.(t);
         setShowNext(duration > 30 && duration - t <= 30);

@@ -24,7 +24,7 @@ export default function Library() {
     setLoading(true);
     try {
       const res = tab === 'continue' ? await getContinueWatching() : await getLibrary();
-      const list: any[] = res.items || [];
+      const list: import('../services/api').LibraryItem[] = res.items || [];
       setItems(list);
 
       // Update details cache from the items we just got (backend now includes metadata)
