@@ -5,7 +5,7 @@ import { Search as SearchIcon, SlidersHorizontal, Star } from 'lucide-react';
 
 const Search: React.FC = () => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<import('../services/api').JikanAnime[]>([]);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({ status: '', type: '' });

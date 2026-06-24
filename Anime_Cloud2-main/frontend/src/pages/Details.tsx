@@ -16,8 +16,8 @@ const Details: React.FC = () => {
       try {
         const res = await getAnime(id);
         setAnime(res.anime);
-      } catch (e: any) {
-        setError(e?.message || 'Failed to load details');
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to load details');
       } finally {
         setLoading(false);
       }

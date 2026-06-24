@@ -87,6 +87,9 @@ async def test_get_chunk_download(mock_client, mock_cache_service):
     # Verify download was triggered via invoke
     mock_client.invoke.assert_called_once()
 
+    # Wait for the background worker task to complete to avoid warnings
+    await asyncio.gather(*downloader._background_tasks)
+
 @pytest.mark.asyncio
 async def test_concurrent_downloads(mock_client, mock_cache_service):
     """Test that multiple requests for the same chunk share the same download task."""
@@ -117,3 +120,6 @@ async def test_concurrent_downloads(mock_client, mock_cache_service):
     
         # Crucial: invoke should be called ONLY ONCE for the requested chunk
         mock_client.invoke.assert_called_once()
+
+        # Wait for the background worker task to complete to avoid warnings
+        await asyncio.gather(*downloader._background_tasks)

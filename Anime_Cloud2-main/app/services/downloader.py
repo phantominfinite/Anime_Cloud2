@@ -39,7 +39,11 @@ class SmartDownloader:
     async def get_chunk(self, file_id: str, chunk_index: int) -> Optional[bytes]:
         data = await cache_service.get_chunk(file_id, chunk_index)
         if data:
-            asyncio.create_task(self.prefetch_chunks(file_id, chunk_index + 1))
+            if not hasattr(self, "_background_tasks"):
+                self._background_tasks = set()
+            task = asyncio.create_task(self.prefetch_chunks(file_id, chunk_index + 1))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
             return data
 
         future = await self._get_or_create_future(file_id, chunk_index)
@@ -50,7 +54,11 @@ class SmartDownloader:
 
         data = await cache_service.get_chunk(file_id, chunk_index)
         if data:
-            asyncio.create_task(self.prefetch_chunks(file_id, chunk_index + 1))
+            if not hasattr(self, "_background_tasks"):
+                self._background_tasks = set()
+            task = asyncio.create_task(self.prefetch_chunks(file_id, chunk_index + 1))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         return data
 
     async def prefetch_chunks(self, file_id: str, start_index: int, count: int = 3):
@@ -68,7 +76,22 @@ class SmartDownloader:
             loop = asyncio.get_running_loop()
             future = loop.create_future()
             self.pending_chunks[key] = future
-            asyncio.create_task(self._download_worker(file_id, chunk_index, future))
+
+            async def run_worker():
+                try:
+                    await self._download_worker(file_id, chunk_index, future)
+                except Exception as e:
+                    logger.error(f"Worker failed: {e}")
+                    if not future.done():
+                        future.set_exception(e)
+
+            # create_task does not save a strong reference, so we will assign it to an attribute
+            # to avoid the "task was destroyed but it is pending" warning and garbage collection.
+            if not hasattr(self, "_background_tasks"):
+                self._background_tasks = set()
+            task = asyncio.create_task(run_worker())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
             return future
 
     async def _download_worker(self, file_id: str, chunk_index: int, future: asyncio.Future):

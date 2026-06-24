@@ -60,11 +60,11 @@ export const Watch = () => {
         setCurrentEp(activeEp);
         setStartTime(0);
         if (res.anime) addToHistory({ mal_id: parseInt(id), title: res.anime.title, image_url: res.anime.image_url || '' });
-      } catch (e: any) {
+      } catch (e: unknown) {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
         if (status === 404 && id) {
           try {
-            const jikanRes = await jikanApi.get<{ data: any }>(`/anime/${id}`);
+            const jikanRes = await jikanApi.get<{ data: { mal_id: number; title: string; images?: { jpg?: { large_image_url?: string } }; synopsis?: string; year?: number; type?: string; score?: number; } }>(`/anime/${id}`);
             const data = jikanRes.data?.data;
             if (data) {
               setAnime({
@@ -145,13 +145,13 @@ export const Watch = () => {
     if (!id || !commentText.trim()) return;
     try {
       const optimistic = { id: Date.now(), user_name: commentName, text: commentText.trim(), likes: 0, date: new Date().toISOString().slice(0,10).replace(/-/g, "/") };
-      setComments((prev) => [optimistic as any, ...prev]);
+      setComments((prev) => [optimistic as import('../services/api').Comment, ...prev]);
       const currentText = commentText.trim();
       setCommentText('');
       await postComment(id, commentName, containsSpoilers ? `[SPOILER] ${currentText}` : currentText);
       setContainsSpoilers(false);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to post comment');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to post comment');
     }
   };
 

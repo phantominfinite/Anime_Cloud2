@@ -11,7 +11,7 @@ import { getTelegramInitData } from '../services/api';
 export const Home = () => {
   const [featured, setFeatured] = useState<AnimeLite | null>(null);
   const [latest, setLatest] = useState<AnimeLite[]>([]);
-  const [continueItems, setContinueItems] = useState<any[]>([]);
+  const [continueItems, setContinueItems] = useState<import('../services/api').LibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,8 +27,8 @@ export const Home = () => {
       const validDetails = details.filter(Boolean) as AnimeLite[];
       setLatest(validDetails);
       setFeatured(validDetails[0] || null);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }

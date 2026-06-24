@@ -8,8 +8,8 @@ interface AppState {
   history: AnimeLite[];
   hydrated: boolean;
   hydrateFromBackend: () => Promise<void>;
-  toggleFavorite: (anime: { mal_id: number, title: string, images?: any, image_url?: string }) => Promise<void>;
-  addToHistory: (anime: { mal_id: number, title: string, images?: any, image_url?: string }) => Promise<void>;
+  toggleFavorite: (anime: { mal_id: number, title: string, images?: { jpg?: { image_url?: string } }, image_url?: string }) => Promise<void>;
+  addToHistory: (anime: { mal_id: number, title: string, images?: { jpg?: { image_url?: string } }, image_url?: string }) => Promise<void>;
   isFavorite: (id: number) => boolean;
 }
 

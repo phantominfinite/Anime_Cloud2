@@ -24,8 +24,8 @@ export default function Profile() {
       try {
         const userRes = await getMe();
         setMe(userRes);
-      } catch (e: any) {
-        setError(e?.message || 'Failed to load profile');
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to load profile');
       } finally {
         setLoading(false);
       }
